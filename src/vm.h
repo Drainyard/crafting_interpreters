@@ -1,8 +1,15 @@
 #ifndef CLOX_VM_H
 #define CLOX_VM_H
 
+// =================================================================
+// API
+// =================================================================
+
 #define STACK_MAX 256
 
+// =================================================================
+// Types
+// =================================================================
 struct VM
 {
     Chunk* chunk;
@@ -17,8 +24,27 @@ enum InterpretResult
     INTERPRET_COMPILE_ERROR,
     INTERPRET_RUNTIME_ERROR,
 };
+// =================================================================
 
+// =================================================================
+// API Functions
+// =================================================================
+void reset_stack(VM* vm);
+void init_vm(VM* vm);
+void free_vm(VM* vm);
+void push(VM* vm, Value value);
+Value pop(VM* vm);
+InterpretResult interpret(VM* vm, const char* source);
+
+// =================================================================
+
+// =================================================================
+// Internal Functions
+// =================================================================
 static InterpretResult run(VM* vm);
+// =================================================================
+
+#ifdef CLOX_VM_IMPLEMENTATION
 
 void reset_stack(VM* vm)
 {
@@ -47,11 +73,23 @@ Value pop(VM* vm)
     return *vm->stack_top;
 }
 
-InterpretResult interpret(VM* vm, Chunk* chunk)
+InterpretResult interpret(VM* vm, const char* source)
 {
-    vm->chunk = chunk;
+    Chunk chunk = {};
+    init_chunk(&chunk);
+
+    if (!compile(source, &chunk))
+    {
+        free_chunk(&chunk);
+        return INTERPRET_COMPILE_ERROR;
+    }
+
+    vm->chunk = &chunk;
     vm->ip = vm->chunk->code;
-    return run(vm);
+
+    InterpretResult result = run(vm);
+    free_chunk(&chunk);
+    return result;
 }
 
 static InterpretResult run(VM* vm)
@@ -111,4 +149,5 @@ static InterpretResult run(VM* vm)
 #undef BINARY_OP
 }
 
+#endif
 #endif

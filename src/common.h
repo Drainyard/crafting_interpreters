@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 using i8 = int8_t;
 using i16 = int16_t;
@@ -20,6 +21,7 @@ using u64 = uint64_t;
 using f32 = float;
 using f64 = double;
 
+#define DEBUG_PRINT_CODE
 #define DEBUG_TRACE_EXECUTION
 
 #endif

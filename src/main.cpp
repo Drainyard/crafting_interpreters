@@ -1,9 +1,5 @@
-#include "common.h"
-#include "memory.h"
-#include "value.h"
-#include "chunk.h"
-#include "debug.h"
-#include "vm.h"
+#define CLOX_IMPLEMENTATION
+#include "clox.h"
 
 int main(int argc, const char* argv[])
 {
@@ -14,19 +10,20 @@ int main(int argc, const char* argv[])
 
     init_vm(&vm);
 
-    write_constant(&chunk, 1.2, 123);
+    if (argc == 1)
+    {
+        repl(&vm);
+    }
+    else if(argc == 2)
+    {
+        run_file(&vm, argv[1]);
+    }
+    else
+    {
+        fprintf(stderr, "Usage: clox [path]\n");
+        exit(64);
+    }
 
-    write_constant(&chunk, 3.4, 123);
-    write_chunk(&chunk, OP_ADD, 123);
-
-    write_constant(&chunk, 5.6, 123);
-    write_chunk(&chunk, OP_DIVIDE, 123);
-    
-    write_chunk(&chunk, OP_NEGATE, 123);
-
-    write_chunk(&chunk, OP_RETURN, 123);
-
-    interpret(&vm, &chunk);
     free_chunk(&chunk);
 
     free_vm(&vm);

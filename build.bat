@@ -9,7 +9,7 @@ setlocal ENABLEDELAYEDEXPANSION
 
 set WIGNORE=-wd4201 -wd4505 -wd4996 -wd4100 -wd4238
 
-set CommonCompilerFlags=/MD -fp:fast -fp:except- -nologo /Od -Oi -W4 -Gm- -GR- -EHa -FC -Z7 /FeCLOX -DDEBUG=%DEBUG% %WIGNORE% 
+set CommonCompilerFlags=/MD -fp:fast -fp:except- -nologo /Od -Oi -W4 -Gm- -GR- -EHa -FC -Z7 /Feclox -DDEBUG=%DEBUG% %WIGNORE% 
 set CommonLinkerFlags=shell32.lib 
 set ExtraLinkerFlags=/NODEFAULTLIB:"LIBCMT" -incremental:no -opt:ref /ignore:4099
 

@@ -1,6 +1,13 @@
 #ifndef CLOX_CHUNK_H
 #define CLOX_CHUNK_H
 
+// =================================================================
+// API
+// =================================================================
+
+// =================================================================
+// Types
+// =================================================================
 enum OpCode
 {
     OP_CONSTANT,
@@ -21,6 +28,20 @@ struct Chunk
     i32* lines;
     ValueArray constants;
 };
+// =================================================================
+
+// =================================================================
+// API Functions
+// =================================================================
+void init_chunk(Chunk* chunk);
+void free_chunk(Chunk* chunk);
+void write_chunk(Chunk* chunk, u8 byte, i32 line);
+i32 add_constant(Chunk* chunk, Value value);
+void write_constant(Chunk* chunk, Value value, i32 line);
+// =================================================================
+
+
+#ifdef CLOX_CHUNK_IMPLEMENTATION
 
 void init_chunk(Chunk* chunk)
 {
@@ -72,8 +93,10 @@ void write_constant(Chunk* chunk, Value value, i32 line)
     else
     {
         write_chunk(chunk, OP_CONSTANT, line);
-        write_chunk(chunk, constant, line);
+        write_chunk(chunk, (u8)constant, line);
     }
 }
+
+#endif
 
 #endif
