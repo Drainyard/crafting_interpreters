@@ -69,6 +69,8 @@ static void emit_constant(Parser* parser);
 static void end_compiler(Parser* parser);
 static void grouping(Parser* parser);
 static void number(Parser* parser);
+static void binary(Parser* parser);
+static void literal(Parser* parser);
 static void unary(Parser* parser);
 static void parse_precedence(Parser* parser, Precedence precedence);
 static ParseRule* get_rule(TokenType type);
@@ -191,10 +193,27 @@ static void binary(Parser* parser)
 
     switch(operator_type)
     {
-    case TOKEN_PLUS:     emit_byte(parser, OP_ADD); break;
-    case TOKEN_MINUS:    emit_byte(parser, OP_SUBTRACT); break;
-    case TOKEN_STAR:     emit_byte(parser, OP_MULTIPLY); break;
-    case TOKEN_SLASH:    emit_byte(parser, OP_DIVIDE); break;
+    case TOKEN_BANG_EQUAL:        emit_bytes(parser, OP_EQUAL, OP_NOT); break;
+    case TOKEN_EQUAL_EQUAL:       emit_byte(parser, OP_EQUAL); break;
+    case TOKEN_GREATER:           emit_byte(parser, OP_GREATER); break;
+    case TOKEN_GREATER_EQUAL:     emit_bytes(parser, OP_LESS, OP_NOT); break;
+    case TOKEN_LESS:              emit_byte(parser, OP_LESS); break;
+    case TOKEN_LESS_EQUAL:        emit_bytes(parser, OP_GREATER, OP_NOT); break;
+    case TOKEN_PLUS:              emit_byte(parser, OP_ADD); break;
+    case TOKEN_MINUS:             emit_byte(parser, OP_SUBTRACT); break;
+    case TOKEN_STAR:              emit_byte(parser, OP_MULTIPLY); break;
+    case TOKEN_SLASH:             emit_byte(parser, OP_DIVIDE); break;
+    default:
+    return;
+    }
+}
+static void literal(Parser* parser)
+{
+    switch(parser->previous.type)
+    {
+    case TOKEN_FALSE: emit_byte(parser, OP_FALSE); break;
+    case TOKEN_NIL: emit_byte(parser, OP_NIL); break;
+    case TOKEN_TRUE: emit_byte(parser, OP_TRUE); break;
     default:
     return;
     }
@@ -209,7 +228,7 @@ static void grouping(Parser* parser)
 static void number(Parser* parser)
 {
     f64 value = strtod(parser->previous.start, NULL);
-    emit_constant(parser, value);
+    emit_constant(parser, number_val(value));
 }
 
 static void unary(Parser* parser)
@@ -220,6 +239,7 @@ static void unary(Parser* parser)
 
     switch(operator_type)
     {
+    case TOKEN_BANG: emit_byte(parser, OP_NOT); break;
     case TOKEN_MINUS: emit_byte(parser, OP_NEGATE); break;
     default:
     return;
@@ -268,31 +288,31 @@ static void init_parse_rules()
     rules[TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_SLASH]         = {NULL,     binary, PREC_FACTOR};
     rules[TOKEN_STAR]          = {NULL,     binary, PREC_FACTOR};
-    rules[TOKEN_BANG]          = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_BANG_EQUAL]    = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_BANG]          = {unary,    NULL,   PREC_NONE};
+    rules[TOKEN_BANG_EQUAL]    = {NULL,     binary, PREC_NONE};
     rules[TOKEN_EQUAL]         = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_EQUAL_EQUAL]   = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_GREATER]       = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_GREATER_EQUAL] = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_LESS]          = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_LESS_EQUAL]    = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_EQUAL_EQUAL]   = {NULL,     binary, PREC_EQUALITY};
+    rules[TOKEN_GREATER]       = {NULL,     binary, PREC_COMPARISON};
+    rules[TOKEN_GREATER_EQUAL] = {NULL,     binary, PREC_COMPARISON};
+    rules[TOKEN_LESS]          = {NULL,     binary, PREC_COMPARISON};
+    rules[TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_COMPARISON};
     rules[TOKEN_IDENTIFIER]    = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_STRING]        = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE};
     rules[TOKEN_AND]           = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_FALSE]         = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE};
     rules[TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_FUN]           = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_IF]            = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_NIL]           = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_NIL]           = {literal,  NULL,   PREC_NONE};
     rules[TOKEN_OR]            = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_THIS]          = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_TRUE]          = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE};
     rules[TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_ERROR]         = {NULL,     NULL,   PREC_NONE};
@@ -302,7 +322,6 @@ static void init_parse_rules()
 bool compile(const char* source, Chunk* chunk)
 {
     init_scanner(source);
-    init_parse_rules();
     compiling_chunk = chunk;
 
     Parser parser = {};

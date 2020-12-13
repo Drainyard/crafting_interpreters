@@ -3,12 +3,10 @@
 
 int main(int argc, const char* argv[])
 {
-    Chunk chunk = {};
-    init_chunk(&chunk);
-
     VM vm = {};
 
     init_vm(&vm);
+    init_parse_rules();
 
     if (argc == 1)
     {
@@ -23,8 +21,6 @@ int main(int argc, const char* argv[])
         fprintf(stderr, "Usage: clox [path]\n");
         exit(64);
     }
-
-    free_chunk(&chunk);
 
     free_vm(&vm);
     return 0;

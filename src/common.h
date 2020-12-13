@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 using i8 = int8_t;
 using i16 = int16_t;
