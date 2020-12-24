@@ -11,10 +11,8 @@
 void* reallocate(void* pointer, size_t old_size, size_t new_size);
 // =================================================================
 
-#ifdef CLOX_MEMORY_IMPLEMENTATION
-
 // =================================================================
-// Internal macros
+// Macros
 // =================================================================
 #define GROW_CAPACITY(capacity)                             \
                       ((capacity) < 8 ? 8 : (capacity) * 2)
@@ -25,25 +23,11 @@ void* reallocate(void* pointer, size_t old_size, size_t new_size);
 
 #define FREE_ARRAY(type, pointer, old_count) \
     reallocate(pointer, sizeof(type) + (old_count), 0)
+
+#define ALLOCATE(type, count) \
+    (type*)reallocate(NULL, 0, sizeof(type) * (count))
+
+#define FREE(type, pointer) reallocate(pointer, sizeof(type), 0)
 // =================================================================
-
-void* reallocate(void* pointer, size_t old_size, size_t new_size)
-{
-    if(new_size == 0)
-    {
-        free(pointer);
-        return NULL;
-    }
-
-    void* result = realloc(pointer, new_size);
-    if(result == NULL) exit(1);
-    return result;
-}
-
-#else
-#define GROW_CAPACITY(capacity)
-#define GROW_ARRAY(type, pointer, old_count, new_count)
-#define FREE_ARRAY(type, pointer, old_count)
-#endif
 
 #endif

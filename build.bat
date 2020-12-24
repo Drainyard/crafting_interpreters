@@ -7,7 +7,7 @@ set DEBUG=1
 
 setlocal ENABLEDELAYEDEXPANSION
 
-set WIGNORE=-wd4201 -wd4505 -wd4996 -wd4100 -wd4238
+set WIGNORE=-wd4201 -wd4505 -wd4996 -wd4100 -wd4238 -wd4200
 
 set CommonCompilerFlags=/MD -fp:fast -fp:except- -nologo /Od -Oi -W4 -Gm- -GR- -EHa -FC -Z7 /Feclox -DDEBUG=%DEBUG% %WIGNORE% 
 set CommonLinkerFlags=shell32.lib 

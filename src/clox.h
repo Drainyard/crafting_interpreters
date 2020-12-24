@@ -1,28 +1,33 @@
 #ifndef CLOX_H
 #define CLOX_H
 
-#ifdef CLOX_IMPLEMENTATION
-#define CLOX_COMPILER_IMPLEMENTATION
-#define CLOX_MEMORY_IMPLEMENTATION
-#define CLOX_VALUE_IMPLEMENTATION
-#define CLOX_CHUNK_IMPLEMENTATION
-#define CLOX_DEBUG_IMPLEMENTATION
-#define CLOX_SCANNER_IMPLEMENTATION
-#define CLOX_VM_IMPLEMENTATION
-#endif
-
 #include "common.h"
 #include "memory.h"
 #include "value.h"
+#include "object.h"
+#include "table.h"
 #include "chunk.h"
-
 #include "debug.h"
-
 #include "scanner.h"
 #include "compiler.h"
 #include "vm.h"
 
-static void repl(VM* vm)
+void repl(VM* vm);
+char* read_file(const char* path);
+void run_file(VM* vm, const char* path);
+
+#ifdef CLOX_IMPLEMENTATION
+#include "memory.cpp"
+#include "value.cpp"
+#include "object.cpp"
+#include "table.cpp"
+#include "chunk.cpp"
+#include "debug.cpp"
+#include "scanner.cpp"
+#include "compiler.cpp"
+#include "vm.cpp"
+
+void repl(VM* vm)
 {
     char line[1024];
     for(;;)
@@ -38,7 +43,7 @@ static void repl(VM* vm)
     }
 }
 
-static char* read_file(const char* path)
+char* read_file(const char* path)
 {
     FILE* file = fopen(path, "rb");
 
@@ -72,7 +77,7 @@ static char* read_file(const char* path)
     return buffer;
 }
 
-static void run_file(VM* vm, const char* path)
+void run_file(VM* vm, const char* path)
 {
     char* source = read_file(path);
     InterpretResult result = interpret(vm, source);
@@ -81,5 +86,6 @@ static void run_file(VM* vm, const char* path)
     if(result == INTERPRET_COMPILE_ERROR) exit(65);
     if(result == INTERPRET_RUNTIME_ERROR) exit(70);
 }
+#endif
 
 #endif

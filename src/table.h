@@ -1,5 +1,5 @@
-#ifndef CLOX_CHUNK_H
-#define CLOX_CHUNK_H
+#ifndef CLOX_TABLE_H
+#define CLOX_TABLE_H
 
 // =================================================================
 // API
@@ -8,43 +8,32 @@
 // =================================================================
 // Types
 // =================================================================
-enum OpCode
+
+struct Entry
 {
-    OP_CONSTANT,
-    OP_CONSTANT_LONG,
-    OP_NIL,
-    OP_FALSE,
-    OP_TRUE,
-    OP_EQUAL,
-    OP_GREATER,
-    OP_LESS,
-    OP_ADD,
-    OP_SUBTRACT,
-    OP_MULTIPLY,
-    OP_DIVIDE,
-    OP_NOT,
-    OP_NEGATE,
-    OP_RETURN
+    ObjString* key;
+    Value value;
 };
 
-struct Chunk
+struct Table
 {
-    u8* code;
     i32 count;
     i32 capacity;
-    i32* lines;
-    ValueArray constants;
+    Entry* entries;
 };
+
 // =================================================================
 
 // =================================================================
 // API Functions
 // =================================================================
-void init_chunk(Chunk* chunk);
-void free_chunk(Chunk* chunk);
-void write_chunk(Chunk* chunk, u8 byte, i32 line);
-i32 add_constant(Chunk* chunk, Value value);
-void write_constant(Chunk* chunk, Value value, i32 line);
+void init_table(Table* table);
+void free_table(Table* table);
+bool table_set(Table* table, ObjString* key, Value value);
+bool table_delete(Table* table, ObjString* key);
+void table_add_all(Table* from, Table* to);
+ObjString* table_find_string(Table* table, const char* chars, i32 length, u32 hash);
+bool table_get(Table* table, ObjString* key, Value* value);
 // =================================================================
 
 #endif
