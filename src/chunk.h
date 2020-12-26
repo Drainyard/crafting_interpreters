@@ -15,6 +15,10 @@ enum OpCode
     OP_NIL,
     OP_FALSE,
     OP_TRUE,
+    OP_POP,
+    OP_GET_GLOBAL,
+    OP_DEFINE_GLOBAL,
+    OP_SET_GLOBAL,
     OP_EQUAL,
     OP_GREATER,
     OP_LESS,
@@ -24,6 +28,7 @@ enum OpCode
     OP_DIVIDE,
     OP_NOT,
     OP_NEGATE,
+    OP_PRINT,
     OP_RETURN
 };
 

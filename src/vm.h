@@ -18,6 +18,7 @@ struct VM
     Value* stack_top;
 
     Table strings;
+    Table globals;
 
     ObjectStore store;
 };

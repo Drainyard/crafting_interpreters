@@ -23,11 +23,13 @@ void init_vm(VM* vm)
     reset_stack(vm);
     vm->store.objects = NULL;
     init_table(&vm->strings);
+    init_table(&vm->globals);
 }
 
 void free_vm(VM* vm)
 {
     free_table(&vm->strings);
+    free_table(&vm->globals);    
     free_objects(vm);
 }
 
@@ -92,6 +94,7 @@ static InterpretResult run(VM* vm)
 {
 #define READ_BYTE() (*vm->ip++)
 #define READ_CONSTANT() (vm->chunk->constants.values[READ_BYTE()])
+#define READ_STRING() (as_string(READ_CONSTANT()))
 
 #define BINARY_OP(value_type, op)                               \
     do {                                                        \
@@ -121,21 +124,57 @@ static InterpretResult run(VM* vm)
         u8 instruction;
         switch(instruction = READ_BYTE())
         {
-        case OP_RETURN:
+        case OP_PRINT:
         {
             print_value(pop(vm));
             printf("\n");
+        }
+        break;
+        case OP_RETURN:
+        {
+            // Exit interpreter
             return INTERPRET_OK;
         }
         case OP_CONSTANT:
         {
             Value constant = READ_CONSTANT();
             push(vm, constant);
-            break;
         }
+        break;
         case OP_NIL: push(vm, nil_val()); break;
         case OP_TRUE: push(vm, bool_val(true)); break;
         case OP_FALSE: push(vm, bool_val(false)); break;
+        case OP_POP: pop(vm); break;
+        case OP_GET_GLOBAL:
+        {
+            ObjString* name = READ_STRING();
+            Value value;
+            if (!table_get(&vm->globals, name, &value))
+            {
+                runtime_error(vm, "Undefined variable '%s'.", name->chars);
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            push(vm, value);
+        }
+        break;
+        case OP_DEFINE_GLOBAL:
+        {
+            ObjString* name = READ_STRING();
+            table_set(&vm->globals, name, peek(vm, 0));
+            pop(vm);
+        }
+        break;
+        case OP_SET_GLOBAL:
+        {
+            ObjString* name = READ_STRING();
+            if (table_set(&vm->globals, name, peek(vm, 0)))
+            {
+                table_delete(&vm->globals, name);
+                runtime_error(vm, "Undefined variable '%s'.", name->chars);
+                return INTERPRET_RUNTIME_ERROR;
+            }
+        }
+        break;
         case OP_EQUAL:
         {
             Value b = pop(vm);
@@ -188,6 +227,7 @@ static InterpretResult run(VM* vm)
 
 #undef READ_BYTE
 #undef READ_CONSTANT
+#undef READ_STRING
 #undef BINARY_OP
 }
 

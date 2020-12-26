@@ -35,7 +35,7 @@ enum Precedence
     PREC_PRIMARY
 };
 
-using ParseFn = void(*)(Parser*);
+using ParseFn = void(*)(Parser*, bool);
 struct ParseRule
 {
     ParseFn prefix;
@@ -69,17 +69,14 @@ static void emit_byte(Parser* pasrer, u8 byte);
 static void emit_bytes(Parser* pasrer, u8 byte_1, u8 byte_2);
 static void emit_return(Parser* parser);
 static u8 make_constant(Parser* parser, Value value);
+static u8 identifier_constant(Parser* parser, Token* name);
 static void emit_constant(Parser* parser);
 static void end_compiler(Parser* parser);
-static void grouping(Parser* parser);
-static void number(Parser* parser);
-static void string(Parser* parser);
-static void binary(Parser* parser);
-static void literal(Parser* parser);
-static void unary(Parser* parser);
 static void parse_precedence(Parser* parser, Precedence precedence);
 static ParseRule* get_rule(TokenType type);
 static void expression(Parser* parser);
+static void declaration(Parser* parser);
+static void statement(Parser* parser);
 // =================================================================
 
 #endif

@@ -55,8 +55,19 @@ static void consume(Parser* parser, TokenType type, const char* message)
         advance(parser);
         return;
     }
-
     error_at_current(parser, message);
+}
+
+static bool check(Parser* parser, TokenType type)
+{
+    return parser->current.type == type;
+}
+
+static bool match(Parser* parser, TokenType type)
+{
+    if (!check(parser, type)) return false;
+    advance(parser);
+    return true;
 }
 
 static void emit_byte(Parser* parser, u8 byte)
@@ -102,7 +113,7 @@ static void end_compiler(Parser* parser)
     emit_return(parser);
 }
 
-static void binary(Parser* parser)
+static void binary(Parser* parser, bool can_assign)
 {
     TokenType operator_type = parser->previous.type;
 
@@ -126,7 +137,7 @@ static void binary(Parser* parser)
     }
 }
 
-static void literal(Parser* parser)
+static void literal(Parser* parser, bool can_assign)
 {
     switch(parser->previous.type)
     {
@@ -138,25 +149,45 @@ static void literal(Parser* parser)
     }
 }
 
-static void grouping(Parser* parser)
+static void grouping(Parser* parser, bool can_assign)
 {
     expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");            
 }
 
-static void number(Parser* parser)
+static void number(Parser* parser, bool can_assign)
 {
     f64 value = strtod(parser->previous.start, NULL);
     emit_constant(parser, number_val(value));
 }
 
-static void string(Parser* parser)
+static void string(Parser* parser, bool can_assign)
 {
     emit_constant(parser, obj_val(copy_string(parser->store, parser->strings, parser->previous.start + 1,
                                               parser->previous.length - 2)));
 }
 
-static void unary(Parser* parser)
+static void named_variable(Parser* parser, Token name, bool can_assign)
+{
+    u8 arg = identifier_constant(parser, &name);
+
+    if (can_assign && match(parser, TOKEN_EQUAL))
+    {
+        expression(parser);
+        emit_bytes(parser, OP_SET_GLOBAL, arg);
+    }
+    else
+    {
+        emit_bytes(parser, OP_GET_GLOBAL, arg);
+    }
+}
+
+static void variable(Parser* parser, bool can_assign)
+{
+    named_variable(parser, parser->previous, can_assign);
+}
+
+static void unary(Parser* parser, bool can_assign)
 {
     TokenType operator_type = parser->previous.type;
 
@@ -180,14 +211,37 @@ static void parse_precedence(Parser* parser, Precedence precedence)
         error(parser, "Expect expression");
         return;
     }
-    prefix_rule(parser);
+    bool can_assign = precedence <= PREC_ASSIGNMENT;
+    prefix_rule(parser, can_assign);
 
     while (precedence <= get_rule(parser->current.type)->precedence)
     {
         advance(parser);
         ParseFn infix_rule = get_rule(parser->previous.type)->infix;
-        infix_rule(parser);
+        infix_rule(parser, can_assign);
     }
+
+    if (can_assign && match(parser, TOKEN_EQUAL))
+    {
+        error(parser, "Invalid assignment target.");
+    }
+}
+
+static u8 identifier_constant(Parser* parser, Token* name)
+{
+    return make_constant(parser, obj_val(copy_string(parser->store, parser->strings, name->start,
+                                                     name->length)));
+}
+
+static u8 parse_variable(Parser* parser, const char* error_message)
+{
+    consume(parser, TOKEN_IDENTIFIER, error_message);
+    return identifier_constant(parser, &parser->previous);
+}
+
+static void define_variable(Parser* parser, u8 global)
+{
+    emit_bytes(parser, OP_DEFINE_GLOBAL, global);
 }
 
 static ParseRule* get_rule(TokenType type)
@@ -198,6 +252,91 @@ static ParseRule* get_rule(TokenType type)
 static void expression(Parser* parser)
 {
     parse_precedence(parser, PREC_ASSIGNMENT);
+}
+
+static void expression_statement(Parser* parser)
+{
+    expression(parser);
+    consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression.");
+    emit_byte(parser, OP_POP);
+}
+
+static void var_declaration(Parser* parser)
+{
+    u8 global = parse_variable(parser, "Expect variable name.");
+
+    if (match(parser, TOKEN_EQUAL))
+    {
+        expression(parser);
+    }
+    else
+    {
+        emit_byte(parser, OP_NIL);
+    }
+
+    consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declarataion.");
+    define_variable(parser, global);
+}
+
+static void print_statement(Parser* parser)
+{
+    expression(parser);
+    consume(parser, TOKEN_SEMICOLON, "Expect ';' after value.");
+    emit_byte(parser, OP_PRINT);
+}
+
+static void synchronize(Parser* parser)
+{
+    parser->panic_mode = false;
+
+    while (parser->current.type != TOKEN_EOF)
+    {
+        if (parser->previous.type == TOKEN_SEMICOLON) return;
+
+        switch (parser->current.type)
+        {
+        case TOKEN_CLASS:
+        case TOKEN_FUN:
+        case TOKEN_VAR:
+        case TOKEN_FOR:
+        case TOKEN_IF:
+        case TOKEN_WHILE:
+        case TOKEN_PRINT:
+        case TOKEN_RETURN:
+        return;
+        default:
+        // @Note: Do nothing
+        ;
+        }
+
+        advance(parser);
+    }
+}
+
+static void declaration(Parser* parser)
+{
+    if (match(parser, TOKEN_VAR))
+    {
+        var_declaration(parser);
+    }
+    else
+    {
+        statement(parser);
+    }
+
+    if (parser->panic_mode) synchronize(parser);
+}
+
+static void statement(Parser* parser)
+{
+    if (match(parser, TOKEN_PRINT))
+    {
+        print_statement(parser);
+    }
+    else
+    {
+        expression_statement(parser);
+    }
 }
 
 void init_parse_rules()
@@ -221,7 +360,7 @@ void init_parse_rules()
     rules[TOKEN_GREATER_EQUAL] = {NULL,     binary, PREC_COMPARISON};
     rules[TOKEN_LESS]          = {NULL,     binary, PREC_COMPARISON};
     rules[TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_COMPARISON};
-    rules[TOKEN_IDENTIFIER]    = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_IDENTIFIER]    = {variable, NULL,   PREC_NONE};
     rules[TOKEN_STRING]        = {string,   NULL,   PREC_NONE};
     rules[TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE};
     rules[TOKEN_AND]           = {NULL,     NULL,   PREC_NONE};
@@ -253,9 +392,12 @@ bool compile(const char* source, Chunk* chunk, ObjectStore* output_store, Table*
     parser.store = output_store;
     parser.strings = output_strings;
     advance(&parser);
-    expression(&parser);
-    consume(&parser, TOKEN_EOF, "Expect end of expression.");
 
+    while (!match(&parser, TOKEN_EOF))
+    {
+        declaration(&parser);
+    }
+  
     end_compiler(&parser);
     return !parser.had_error;
 }
