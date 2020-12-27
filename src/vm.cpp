@@ -145,6 +145,12 @@ static InterpretResult run(VM* vm)
         case OP_TRUE: push(vm, bool_val(true)); break;
         case OP_FALSE: push(vm, bool_val(false)); break;
         case OP_POP: pop(vm); break;
+        case OP_GET_LOCAL:
+        {
+            u8 slot = READ_BYTE();
+            push(vm, vm->stack[slot]);
+        }
+        break;
         case OP_GET_GLOBAL:
         {
             ObjString* name = READ_STRING();
@@ -162,6 +168,12 @@ static InterpretResult run(VM* vm)
             ObjString* name = READ_STRING();
             table_set(&vm->globals, name, peek(vm, 0));
             pop(vm);
+        }
+        break;
+        case OP_SET_LOCAL:
+        {
+            u8 slot = READ_BYTE();
+            vm->stack[slot] = peek(vm, 0);
         }
         break;
         case OP_SET_GLOBAL:

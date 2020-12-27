@@ -4,6 +4,8 @@ Chunk* current_chunk()
     return compiling_chunk;
 }
 
+Compiler* current = NULL;
+
 static void error_at(Parser* parser, Token* token, const char* message)
 {
     if(parser->panic_mode) return;
@@ -102,6 +104,13 @@ static void emit_constant(Parser* parser, Value value)
     emit_bytes(parser, OP_CONSTANT, make_constant(parser, value));
 }
 
+static void init_compiler(Compiler* compiler)
+{
+    compiler->local_count = 0;
+    compiler->scope_depth = 0;
+    current = compiler;
+}
+
 static void end_compiler(Parser* parser)
 {
 #ifdef DEBUG_PRINT_CODE
@@ -111,6 +120,23 @@ static void end_compiler(Parser* parser)
     }
 #endif
     emit_return(parser);
+}
+
+static void begin_scope()
+{
+    current->scope_depth++;
+}
+
+static void end_scope(Parser* parser)
+{
+    current->scope_depth--;
+
+    while (current->local_count > 0 &&
+           current->locals[current->local_count - 1].depth > current->scope_depth)
+    {
+        emit_byte(parser, OP_POP);
+        current->local_count--;
+    }
 }
 
 static void binary(Parser* parser, bool can_assign)
@@ -169,16 +195,29 @@ static void string(Parser* parser, bool can_assign)
 
 static void named_variable(Parser* parser, Token name, bool can_assign)
 {
-    u8 arg = identifier_constant(parser, &name);
-
-    if (can_assign && match(parser, TOKEN_EQUAL))
+    u8 get_op, set_op;
+    bool immutable = false;
+    i32 arg = resolve_local(parser, current, &name, &immutable);
+    if (arg != -1)
     {
-        expression(parser);
-        emit_bytes(parser, OP_SET_GLOBAL, arg);
+        get_op = OP_GET_LOCAL;
+        set_op = OP_SET_LOCAL;
     }
     else
     {
-        emit_bytes(parser, OP_GET_GLOBAL, arg);
+        arg = identifier_constant(parser, &name);
+        get_op = OP_GET_GLOBAL;
+        set_op = OP_SET_GLOBAL;
+    }
+    
+    if (can_assign && !immutable && match(parser, TOKEN_EQUAL))
+    {
+        expression(parser);
+        emit_bytes(parser, set_op, (u8)arg);
+    }
+    else
+    {
+        emit_bytes(parser, get_op, (u8)arg);
     }
 }
 
@@ -233,14 +272,95 @@ static u8 identifier_constant(Parser* parser, Token* name)
                                                      name->length)));
 }
 
-static u8 parse_variable(Parser* parser, const char* error_message)
+static bool identifiers_equal(Token* a, Token* b)
+{
+    if (a->length != b->length) return false;
+    return memcmp(a->start, b->start, a->length) == 0;
+}
+
+static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* immutable)
+{
+    for (i32 i = compiler->local_count - 1; i >= 0; i--)
+    {
+        Local* local = &compiler->locals[i];
+        if (identifiers_equal(name, &local->name))
+        {
+            if (local->depth == -1)
+            {
+                error(parser, "Can't read local variable in its own initializer.");
+            }
+            *immutable = local->immutable;
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static void add_local(Parser* parser, Token name, bool immutable)
+{
+    if (current->local_count == UINT8_COUNT)
+    {
+        error(parser, "Too many local variables in function.");
+        return;
+    }
+    
+    Local* local = &current->locals[current->local_count++];
+    local->name = name;
+    local->depth = -1;
+    local->immutable = immutable;
+}
+
+static void declare_variable(Parser* parser, bool immutable)
+{
+    if (current->scope_depth == 0) return;
+
+    Token* name = &parser->previous;
+
+    for (i32 i = current->local_count - 1; i >= 0; i--)
+    {
+        Local* local = &current->locals[i];
+        if (local->depth != -1 && local->depth < current->scope_depth)
+        {
+            break;
+        }
+
+        if (identifiers_equal(name, &local->name))
+        {
+            error(parser, "Already variable with this name in this scope.");
+        }
+    }
+    
+    add_local(parser, *name, immutable);
+}
+
+static u8 parse_variable(Parser* parser, const char* error_message, bool immutable)
 {
     consume(parser, TOKEN_IDENTIFIER, error_message);
+
+    declare_variable(parser, immutable);
+    if (current->scope_depth > 0) return 0;
+    if (immutable)
+    {
+        error(parser, "Globals can not be declared immutable.");
+    }
+    
     return identifier_constant(parser, &parser->previous);
+}
+
+static void mark_initialized()
+{
+    current->locals[current->local_count - 1].depth = current->scope_depth;
 }
 
 static void define_variable(Parser* parser, u8 global)
 {
+    if (current->scope_depth > 0)
+    {
+        mark_initialized();
+        return;
+    }
+    
     emit_bytes(parser, OP_DEFINE_GLOBAL, global);
 }
 
@@ -254,6 +374,16 @@ static void expression(Parser* parser)
     parse_precedence(parser, PREC_ASSIGNMENT);
 }
 
+static void block(Parser* parser)
+{
+    while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF))
+    {
+        declaration(parser);
+    }
+
+    consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+}
+
 static void expression_statement(Parser* parser)
 {
     expression(parser);
@@ -261,9 +391,9 @@ static void expression_statement(Parser* parser)
     emit_byte(parser, OP_POP);
 }
 
-static void var_declaration(Parser* parser)
+static void var_declaration(Parser* parser, bool immutable)
 {
-    u8 global = parse_variable(parser, "Expect variable name.");
+    u8 global = parse_variable(parser, "Expect variable name.", immutable);
 
     if (match(parser, TOKEN_EQUAL))
     {
@@ -297,7 +427,7 @@ static void synchronize(Parser* parser)
         {
         case TOKEN_CLASS:
         case TOKEN_FUN:
-        case TOKEN_VAR:
+        case TOKEN_LET:
         case TOKEN_FOR:
         case TOKEN_IF:
         case TOKEN_WHILE:
@@ -315,9 +445,13 @@ static void synchronize(Parser* parser)
 
 static void declaration(Parser* parser)
 {
-    if (match(parser, TOKEN_VAR))
+    if (match(parser, TOKEN_LET))
     {
-        var_declaration(parser);
+        var_declaration(parser, false);
+    }
+    else if (match(parser, TOKEN_CONST))
+    {
+        var_declaration(parser, true);
     }
     else
     {
@@ -332,6 +466,12 @@ static void statement(Parser* parser)
     if (match(parser, TOKEN_PRINT))
     {
         print_statement(parser);
+    }
+    else if (match(parser, TOKEN_LEFT_BRACE))
+    {
+        begin_scope();
+        block(parser);
+        end_scope(parser);
     }
     else
     {
@@ -377,7 +517,7 @@ void init_parse_rules()
     rules[TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_THIS]          = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE};
-    rules[TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_LET]           = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_ERROR]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE};
@@ -387,6 +527,9 @@ bool compile(const char* source, Chunk* chunk, ObjectStore* output_store, Table*
 {
     init_scanner(source);
     compiling_chunk = chunk;
+
+    Compiler compiler = {};
+    init_compiler(&compiler);
 
     Parser parser = {};
     parser.store = output_store;

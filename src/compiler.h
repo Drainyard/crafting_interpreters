@@ -43,6 +43,20 @@ struct ParseRule
     Precedence precedence;
 };
 
+struct Local
+{
+    Token name;
+    i32 depth;
+    bool immutable;
+};
+
+struct Compiler
+{
+    Local locals[UINT8_COUNT];
+    i32 local_count;
+    i32 scope_depth;
+};
+
 ParseRule rules[TOKEN_EOF];
 
 
@@ -77,6 +91,8 @@ static ParseRule* get_rule(TokenType type);
 static void expression(Parser* parser);
 static void declaration(Parser* parser);
 static void statement(Parser* parser);
+
+static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* immutable);
 // =================================================================
 
 #endif
