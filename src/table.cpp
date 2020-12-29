@@ -41,7 +41,7 @@ static Entry* find_entry(Entry* entries, i32 capacity, ObjString* key)
     }
 }
 
-bool table_get(Table* table, ObjString* key, Value* value)
+bool table_get(Table* table, ObjString* key, Value* value)    
 {
     if (table->count == 0) return false;
 

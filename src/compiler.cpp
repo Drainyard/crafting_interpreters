@@ -205,6 +205,11 @@ static void named_variable(Parser* parser, Token name, bool can_assign)
     }
     else
     {
+        Global* global = get_global(parser, current, &name);
+        if (global)
+        {
+            immutable = global->immutable;
+        }
         arg = identifier_constant(parser, &name);
         get_op = OP_GET_GLOBAL;
         set_op = OP_SET_GLOBAL;
@@ -250,6 +255,7 @@ static void parse_precedence(Parser* parser, Precedence precedence)
         error(parser, "Expect expression");
         return;
     }
+    
     bool can_assign = precedence <= PREC_ASSIGNMENT;
     prefix_rule(parser, can_assign);
 
@@ -276,6 +282,20 @@ static bool identifiers_equal(Token* a, Token* b)
 {
     if (a->length != b->length) return false;
     return memcmp(a->start, b->start, a->length) == 0;
+}
+
+static Global* get_global(Parser* parser, Compiler* compiler, Token* name)
+{
+    for (i32 i = global_count - 1; i >= 0; i--)
+    {
+        Global* global = &globals[i];
+        if (strncmp(name->start, global->name->chars, global->name->length) == 0)
+        {
+            return global;
+        }
+    }
+
+    return NULL;
 }
 
 static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* immutable)
@@ -311,27 +331,51 @@ static void add_local(Parser* parser, Token name, bool immutable)
     local->immutable = immutable;
 }
 
+static void add_global(Parser* parser, Token name, bool immutable)
+{
+    if (global_count == UINT8_COUNT)
+    {
+        error(parser, "Too many global variables defined.");
+        return;
+    }
+
+    Global* global = &globals[global_count++];
+    global->name = copy_string(parser->store, parser->strings, name.start, name.length);
+    global->immutable = immutable;
+}
+
 static void declare_variable(Parser* parser, bool immutable)
 {
-    if (current->scope_depth == 0) return;
-
     Token* name = &parser->previous;
-
-    for (i32 i = current->local_count - 1; i >= 0; i--)
+    if (current->scope_depth == 0)
     {
-        Local* local = &current->locals[i];
-        if (local->depth != -1 && local->depth < current->scope_depth)
+        for (i32 i = global_count - 1; i >= 0; i--)
         {
-            break;
+            Global* global = &globals[i];
+            if (strncmp(name->start, global->name->chars, global->name->length) == 0)
+            {
+                error(parser, "Already global with this name.");
+            }
         }
-
-        if (identifiers_equal(name, &local->name))
-        {
-            error(parser, "Already variable with this name in this scope.");
-        }
+        add_global(parser, *name, immutable);
     }
-    
-    add_local(parser, *name, immutable);
+    else
+    {
+        for (i32 i = current->local_count - 1; i >= 0; i--)
+        {
+            Local* local = &current->locals[i];
+            if (local->depth != -1 && local->depth < current->scope_depth)
+            {
+                break;
+            }
+
+            if (identifiers_equal(name, &local->name))
+            {
+                error(parser, "Already variable with this name in this scope.");
+            }
+        }
+        add_local(parser, *name, immutable);
+    }
 }
 
 static u8 parse_variable(Parser* parser, const char* error_message, bool immutable)
@@ -340,12 +384,8 @@ static u8 parse_variable(Parser* parser, const char* error_message, bool immutab
 
     declare_variable(parser, immutable);
     if (current->scope_depth > 0) return 0;
-    if (immutable)
-    {
-        error(parser, "Globals can not be declared immutable.");
-    }
-    
-    return identifier_constant(parser, &parser->previous);
+
+    return identifier_constant(parser, &parser->previous);;
 }
 
 static void mark_initialized()
@@ -399,7 +439,11 @@ static void var_declaration(Parser* parser, bool immutable)
     {
         expression(parser);
     }
-    else
+    else if (immutable && !match(parser, TOKEN_EQUAL))
+    {
+        error(parser, "Const variables must be initialized.");
+    }
+    else 
     {
         emit_byte(parser, OP_NIL);
     }
@@ -518,6 +562,7 @@ void init_parse_rules()
     rules[TOKEN_THIS]          = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE};
     rules[TOKEN_LET]           = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_CONST]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_ERROR]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE};

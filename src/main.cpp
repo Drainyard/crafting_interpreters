@@ -4,6 +4,7 @@
 int main(int argc, const char* argv[])
 {
     VM vm = {};
+    global_count = 0;
 
     init_vm(&vm);
     init_parse_rules();

@@ -50,10 +50,20 @@ struct Local
     bool immutable;
 };
 
+struct Global
+{
+    ObjString* name;
+    bool immutable;
+};
+
+Global globals[UINT8_COUNT];
+i32 global_count;
+
 struct Compiler
 {
     Local locals[UINT8_COUNT];
     i32 local_count;
+    
     i32 scope_depth;
 };
 
@@ -93,6 +103,7 @@ static void declaration(Parser* parser);
 static void statement(Parser* parser);
 
 static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* immutable);
+static Global* get_global(Parser* parser, Compiler* compiler, Token* name);
 // =================================================================
 
 #endif
