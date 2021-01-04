@@ -50,6 +50,12 @@ struct Local
     bool immutable;
 };
 
+enum FunctionType
+{
+    TYPE_FUNCTION,
+    TYPE_SCRIPT
+};
+
 struct Global
 {
     ObjString* name;
@@ -61,6 +67,11 @@ i32 global_count;
 
 struct Compiler
 {
+    struct Compiler* enclosing; // @Note(Niels): Change this to not be a linked list for perf
+    
+    ObjFunction* function;
+    FunctionType type;
+    
     Local locals[UINT8_COUNT];
     i32 local_count;
     
@@ -73,7 +84,7 @@ ParseRule rules[TOKEN_EOF];
 // =================================================================
 // API Functions
 // =================================================================
-bool compile(const char* source, Chunk* chunk, ObjectStore* output_store, Table* output_strings);
+ObjFunction* compile(const char* source, ObjectStore* output_store, Table* output_strings);
 void init_parse_rules();
 // =================================================================
 
@@ -95,11 +106,12 @@ static void emit_return(Parser* parser);
 static u8 make_constant(Parser* parser, Value value);
 static u8 identifier_constant(Parser* parser, Token* name);
 static void emit_constant(Parser* parser);
-static void end_compiler(Parser* parser);
+static ObjFunction* end_compiler(Parser* parser);
 static void parse_precedence(Parser* parser, Precedence precedence);
 static ParseRule* get_rule(TokenType type);
 static void expression(Parser* parser);
 static void declaration(Parser* parser);
+static void var_declaration(Parser* parser, bool immutable);
 static void statement(Parser* parser);
 
 static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* immutable);

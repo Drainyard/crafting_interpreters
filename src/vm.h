@@ -5,15 +5,24 @@
 // API
 // =================================================================
 
-#define STACK_MAX 256
+#define FRAMES_MAX 64
+#define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 // =================================================================
 // Types
 // =================================================================
+struct CallFrame
+{
+    ObjFunction* function;
+    u8* ip;
+    Value* slots;
+};
+
 struct VM
 {
-    Chunk* chunk;
-    u8* ip;
+    CallFrame frames[FRAMES_MAX];
+    i32 frame_count;
+    
     Value stack[STACK_MAX];
     Value* stack_top;
 

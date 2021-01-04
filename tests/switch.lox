@@ -1,0 +1,11 @@
+{
+	let b = "Test";
+	let c = "Not Test";
+	switch(c)
+	{
+		case b: print b;
+		case "Not Test": print c;
+		default: "None";
+	}
+}
+

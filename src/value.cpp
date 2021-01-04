@@ -29,12 +29,19 @@ Value obj_val(Obj* object)
     return value;
 }
 
+Value obj_val(ObjFunction* object)
+{
+    return obj_val((Obj*)object);
+}
+
+Value obj_val(ObjNative* object)
+{
+    return obj_val((Obj*)object);
+}
+
 Value obj_val(ObjString* object)
 {
-    Value value = {};
-    value.type = VAL_OBJ;
-    value.as.obj = (Obj*)object;
-    return value;
+    return obj_val((Obj*)object);
 }
 
 bool is_number(Value value)

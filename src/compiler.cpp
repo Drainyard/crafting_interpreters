@@ -1,10 +1,9 @@
-Chunk* compiling_chunk;
+Compiler* current = NULL;
+
 Chunk* current_chunk()
 {
-    return compiling_chunk;
+    return &current->function->chunk;
 }
-
-Compiler* current = NULL;
 
 static void error_at(Parser* parser, Token* token, const char* message)
 {
@@ -80,11 +79,31 @@ static void emit_byte(Parser* parser, u8 byte)
 static void emit_bytes(Parser* parser, u8 byte_1, u8 byte_2)
 {
     emit_byte(parser, byte_1);
-    emit_byte(parser,  byte_2);
+    emit_byte(parser, byte_2);
+}
+
+static void emit_loop(Parser* parser, i32 loop_start)
+{
+    emit_byte(parser, OP_LOOP);
+
+    i32 offset = current_chunk()->count - loop_start + 2;
+    if (offset > UINT16_MAX) error(parser, "Loop body too large.");
+
+    emit_byte(parser, (offset >> 8) & 0xff);
+    emit_byte(parser, offset & 0xff);
+}
+
+static i32 emit_jump(Parser* parser, u8 instruction)
+{
+    emit_byte(parser, instruction);
+    emit_byte(parser, 0xff);
+    emit_byte(parser, 0xff);
+    return current_chunk()->count - 2;
 }
 
 static void emit_return(Parser* parser)
 {
+    emit_byte(parser, OP_NIL);
     emit_byte(parser, OP_RETURN);
 }
 
@@ -104,22 +123,53 @@ static void emit_constant(Parser* parser, Value value)
     emit_bytes(parser, OP_CONSTANT, make_constant(parser, value));
 }
 
-static void init_compiler(Compiler* compiler)
+static void patch_jump(Parser* parser, i32 offset)
 {
-    compiler->local_count = 0;
-    compiler->scope_depth = 0;
-    current = compiler;
+    i32 jump = current_chunk()->count - offset - 2;
+
+    if (jump > UINT16_MAX)
+    {
+        error(parser, "Too much code to jump over.");
+    }
+
+    current_chunk()->code[offset] = (jump >> 8) & 0xff;
+    current_chunk()->code[offset + 1] = jump & 0xff;
 }
 
-static void end_compiler(Parser* parser)
+static void init_compiler(Compiler* compiler, Parser* parser, FunctionType type)
 {
+    compiler->enclosing = current;
+    compiler->function = NULL;
+    compiler->type = type;
+    compiler->local_count = 0;
+    compiler->scope_depth = 0;
+    compiler->function = new_function(parser->store);
+    current = compiler;
+
+    if (type != TYPE_SCRIPT)
+    {
+        current->function->name = copy_string(parser->store, parser->strings, parser->previous.start, parser->previous.length);
+    }
+
+    Local* local = &current->locals[current->local_count++];
+    local->depth = 0;
+    local->name.start = "";
+    local->name.length = 0;
+}
+
+static ObjFunction* end_compiler(Parser* parser)
+{
+    ObjFunction* function = current->function;
 #ifdef DEBUG_PRINT_CODE
     if (!parser->had_error)
     {
-        disassemble_chunk(current_chunk(), "code");
+        disassemble_chunk(current_chunk(), function->name != NULL ? function->name->chars : "<script>");
     }
 #endif
     emit_return(parser);
+    current = current->enclosing;
+
+    return function;
 }
 
 static void begin_scope()
@@ -163,6 +213,31 @@ static void binary(Parser* parser, bool can_assign)
     }
 }
 
+static u8 argument_list(Parser* parser)
+{
+    u8 arg_count = 0;
+    if (!check(parser, TOKEN_RIGHT_PAREN))
+    {
+        do
+        {
+            expression(parser);
+            if (arg_count == 255)
+            {
+                error(parser, "Can't have more than 255 arguments.");
+            }
+            arg_count++;
+        } while (match(TOKEN_COMMA));
+    }
+    consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+    return arg_count;
+}
+
+static void call(Parser* parser, bool can_assign)
+{
+    u8 arg_count = argument_list(parser);
+    emit_bytes(parser, OP_CALL, arg_count);
+}
+
 static void literal(Parser* parser, bool can_assign)
 {
     switch(parser->previous.type)
@@ -185,6 +260,18 @@ static void number(Parser* parser, bool can_assign)
 {
     f64 value = strtod(parser->previous.start, NULL);
     emit_constant(parser, number_val(value));
+}
+
+static void or_(Parser* parser, bool can_assign)
+{
+    i32 else_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+    i32 end_jump = emit_jump(parser, OP_JUMP);
+
+    patch_jump(parser, else_jump);
+    emit_byte(parser, OP_POP);
+
+    parse_precedence(parser, PREC_OR);
+    patch_jump(parser, end_jump);
 }
 
 static void string(Parser* parser, bool can_assign)
@@ -385,11 +472,12 @@ static u8 parse_variable(Parser* parser, const char* error_message, bool immutab
     declare_variable(parser, immutable);
     if (current->scope_depth > 0) return 0;
 
-    return identifier_constant(parser, &parser->previous);;
+    return identifier_constant(parser, &parser->previous);
 }
 
 static void mark_initialized()
 {
+    if (current->scope_depth == 0) return;
     current->locals[current->local_count - 1].depth = current->scope_depth;
 }
 
@@ -402,6 +490,16 @@ static void define_variable(Parser* parser, u8 global)
     }
     
     emit_bytes(parser, OP_DEFINE_GLOBAL, global);
+}
+
+static void and_(Parser* parser, bool can_assign)
+{
+    i32 end_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+
+    emit_byte(parser, OP_POP);
+    parse_precedence(parser, PREC_AND);
+
+    patch_jump(parser, end_jump);
 }
 
 static ParseRule* get_rule(TokenType type)
@@ -424,11 +522,181 @@ static void block(Parser* parser)
     consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
+static void function(Parser* parser, FunctionType type)
+{
+    Compiler compiler = {};
+    init_compiler(&compiler, parser, type);
+    begin_scope();
+
+    consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+    if (!check(parser, TOKEN_RIGHT_PAREN))
+    {
+        do
+        {
+            current->function->arity++;
+            if (current->function->arity > 255)
+            {
+                error_at_current(parser, "Can't have more than 255 parameters.");
+            }
+
+            u8 param_constant = parse_variable(parser, "Expect parameter name.", true); // @Note: Check for default values?
+            define_variable(parser, param_constant);
+        } while (match(parser, TOKEN_COMMA));
+    }
+    
+    consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+
+    consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+    block(parser);
+
+    ObjFunction* function = end_compiler(parser);
+    emit_bytes(parser, OP_CONSTANT, make_constant(parser, obj_val(function)));
+}
+
+static void fun_declaration(Parser* parser)
+{
+    u8 global = parse_variable(parser, "Expect function name.", true);
+    mark_initialized();
+    function(parser, TYPE_FUNCTION);
+    define_variable(parser, global);
+}
+
 static void expression_statement(Parser* parser)
 {
     expression(parser);
     consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression.");
     emit_byte(parser, OP_POP);
+}
+
+static void for_statement(Parser* parser)
+{
+    begin_scope();
+    consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+    if (match(parser, TOKEN_SEMICOLON))
+    {
+        
+    }
+    else if (match(parser, TOKEN_LET))
+    {
+        var_declaration(parser, false);
+    }
+    else if (match(parser, TOKEN_CONST))
+    {
+        var_declaration(parser, true);
+    }
+    else
+    {
+        expression_statement(parser);
+    }
+
+    i32 loop_start = current_chunk()->count;
+
+    i32 exit_jump = -1;
+
+    if (!match(parser, TOKEN_SEMICOLON))
+    {
+        expression(parser);
+        consume(parser, TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+
+        exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+        emit_byte(parser, OP_POP);
+    }
+
+    if (!match(parser, TOKEN_RIGHT_PAREN))
+    {
+        i32 body_jump = emit_jump(parser, OP_JUMP);
+
+        i32 increment_start = current_chunk()->count;
+        expression(parser);
+        emit_byte(parser, OP_POP);
+        consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+
+        emit_loop(parser, loop_start);
+        loop_start = increment_start;
+        patch_jump(parser, body_jump);
+    }       
+
+    statement(parser);
+
+    emit_loop(parser, loop_start);
+
+    if (exit_jump != -1)
+    {
+        patch_jump(parser, exit_jump);
+        emit_byte(parser, OP_POP);
+    }
+
+    end_scope(parser);
+}
+
+static void switch_statement(Parser* parser)
+{
+    consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
+    expression(parser);
+    consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after switch condition.");
+
+    consume(parser, TOKEN_LEFT_BRACE, "Expect '{' after switch expression.");
+
+    i32 exit_jumps[64];
+    i32 exit_jump_count = 0;
+
+    while (match(parser, TOKEN_CASE))
+    {
+        // Parse the case value
+        expression(parser);
+
+        // consume colon
+        consume(parser, TOKEN_COLON, "Expect ':' after case value.");
+
+        // Check for equality
+        emit_byte(parser, OP_COMPARE);
+        i32 then_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+
+        // If false
+        emit_byte(parser, OP_POP); // pop the value
+        emit_byte(parser, OP_POP);
+        statement(parser);
+
+        exit_jumps[exit_jump_count++] = emit_jump(parser, OP_JUMP);
+
+        patch_jump(parser, then_jump);
+        emit_byte(parser, OP_POP); // pop the value
+        emit_byte(parser, OP_POP);
+    }
+
+    if (match(parser, TOKEN_DEFAULT))
+    {
+        consume(parser, TOKEN_COLON, "Expect ':' after default label.");
+        statement(parser);
+    }
+
+    for (i32 i = 0; i < exit_jump_count; i++)
+    {
+        patch_jump(parser, exit_jumps[i]);
+    }
+
+    emit_byte(parser, OP_POP);
+
+    consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after switch statement.");
+}
+
+static void if_statement(Parser* parser)
+{
+    consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
+    expression(parser);
+    consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+    i32 then_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+    emit_byte(parser, OP_POP);
+    statement(parser);
+    i32 else_jump = emit_jump(parser, OP_JUMP);
+
+    patch_jump(parser, then_jump);
+
+    emit_byte(parser, OP_POP);
+
+    if (match(parser, TOKEN_ELSE)) statement(parser);
+    patch_jump(parser, else_jump);
 }
 
 static void var_declaration(Parser* parser, bool immutable)
@@ -448,7 +716,7 @@ static void var_declaration(Parser* parser, bool immutable)
         emit_byte(parser, OP_NIL);
     }
 
-    consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declarataion.");
+    consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
     define_variable(parser, global);
 }
 
@@ -457,6 +725,44 @@ static void print_statement(Parser* parser)
     expression(parser);
     consume(parser, TOKEN_SEMICOLON, "Expect ';' after value.");
     emit_byte(parser, OP_PRINT);
+}
+
+static void return_statement(Parser* parser)
+{
+    if (current->type == TYPE_SCRIPT)
+    {
+        error(parser, "Can't return from top-level code.");
+    }
+    
+    if (match(parser, TOKEN_SEMICOLON))
+    {
+        emit_return(parser);
+    }
+    else
+    {
+        expression(parser);
+        consume(parser, TOKEN_SEMICOLON, "Expect ';' after return value.");
+        emit_byte(parser, OP_RETURN);
+    }
+}
+
+static void while_statement(Parser* parser)
+{
+    i32 loop_start = current_chunk()->count;
+    
+    consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
+    expression(parser);
+    consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+    i32 exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+
+    emit_byte(parser, OP_POP);
+    statement(parser);
+
+    emit_loop(parser, loop_start);
+
+    patch_jump(parser, exit_jump);
+    emit_byte(parser, OP_POP);
 }
 
 static void synchronize(Parser* parser)
@@ -489,7 +795,11 @@ static void synchronize(Parser* parser)
 
 static void declaration(Parser* parser)
 {
-    if (match(parser, TOKEN_LET))
+    if (match(parser, TOKEN_FUN))
+    {
+        fun_declaration(parser);
+    }
+    else if (match(parser, TOKEN_LET))
     {
         var_declaration(parser, false);
     }
@@ -511,6 +821,26 @@ static void statement(Parser* parser)
     {
         print_statement(parser);
     }
+    else if (match(parser, TOKEN_IF))
+    {
+        if_statement(parser);
+    }
+    else if (match(parser, TOKEN_RETURN))
+    {
+        return_statement(parser);
+    }
+    else if (match(parser, TOKEN_WHILE))
+    {
+        while_statement(parser);
+    }
+    else if (match(parser, TOKEN_FOR))
+    {
+        for_statement(parser);
+    }
+    else if (match(parser, TOKEN_SWITCH))
+    {
+        switch_statement(parser);
+    }
     else if (match(parser, TOKEN_LEFT_BRACE))
     {
         begin_scope();
@@ -525,7 +855,7 @@ static void statement(Parser* parser)
 
 void init_parse_rules()
 {
-    rules[TOKEN_LEFT_PAREN]    = {grouping, NULL,   PREC_NONE};
+    rules[TOKEN_LEFT_PAREN]    = {grouping, call,   PREC_CALL};
     rules[TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE}; 
     rules[TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE};
@@ -547,7 +877,7 @@ void init_parse_rules()
     rules[TOKEN_IDENTIFIER]    = {variable, NULL,   PREC_NONE};
     rules[TOKEN_STRING]        = {string,   NULL,   PREC_NONE};
     rules[TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE};
-    rules[TOKEN_AND]           = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_AND]           = {NULL,     and_,   PREC_NONE};
     rules[TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE};
@@ -555,7 +885,7 @@ void init_parse_rules()
     rules[TOKEN_FUN]           = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_IF]            = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_NIL]           = {literal,  NULL,   PREC_NONE};
-    rules[TOKEN_OR]            = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_OR]            = {NULL,     or_,    PREC_NONE};
     rules[TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE};
@@ -568,17 +898,17 @@ void init_parse_rules()
     rules[TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE};
 }
 
-bool compile(const char* source, Chunk* chunk, ObjectStore* output_store, Table* output_strings)
+ObjFunction* compile(const char* source, ObjectStore* output_store, Table* output_strings)
 {
     init_scanner(source);
-    compiling_chunk = chunk;
-
-    Compiler compiler = {};
-    init_compiler(&compiler);
 
     Parser parser = {};
     parser.store = output_store;
     parser.strings = output_strings;
+
+    Compiler compiler = {};
+    init_compiler(&compiler, &parser, TYPE_SCRIPT);
+
     advance(&parser);
 
     while (!match(&parser, TOKEN_EOF))
@@ -586,6 +916,6 @@ bool compile(const char* source, Chunk* chunk, ObjectStore* output_store, Table*
         declaration(&parser);
     }
   
-    end_compiler(&parser);
-    return !parser.had_error;
+    ObjFunction* function = end_compiler(&parser);
+    return parser.had_error ? NULL : function;
 }

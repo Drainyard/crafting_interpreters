@@ -107,6 +107,26 @@ i32 disassemble_instruction(Chunk* chunk, i32 offset)
     {
         return simple_instruction("OP_PRINT", offset);
     }
+    case OP_JUMP:
+    {
+        return jump_instruction("OP_JUMP", 1, chunk, offset);
+    }
+    case OP_JUMP_IF_FALSE:
+    {
+        return jump_instruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
+    }
+    case OP_COMPARE:
+    {
+        return simple_instruction("OP_COMPARE", offset);
+    }
+    case OP_LOOP:
+    {
+        return jump_instruction("OP_LOOP", -1, chunk, offset);
+    }
+    case OP_CALL:
+    {
+        return byte_instruction("OP_CALL", chunk, offset);
+    }
     case OP_RETURN:
     {
         return simple_instruction("OP_RETURN", offset);
@@ -130,6 +150,14 @@ static i32 byte_instruction(const char* name, Chunk* chunk, i32 offset)
     u8 slot = chunk->code[offset + 1];
     printf("%-16s %4d\n", name, slot);
     return offset + 2;
+}
+
+static i32 jump_instruction(const char* name, i32 sign, Chunk* chunk, i32 offset)
+{
+    u16 jump = (u16)(chunk->code[offset + 1] << 8);
+    jump |= chunk->code[offset + 2];
+    printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+    return offset + 3;
 }
 
 static i32 constant_instruction(const char* name, Chunk* chunk, i32 offset)

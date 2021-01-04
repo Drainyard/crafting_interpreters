@@ -17,6 +17,7 @@ void disassemble_chunk(Chunk* chunk, const char* name);
 // =================================================================
 static i32 simple_instruction(const char* name, i32 offset);
 static i32 byte_instruction(const char* name, Chunk* chunk, i32 offset);
+static i32 jump_instruction(const char* name, i32 sign, Chunk* chunk, i32 offset);        
 static i32 constant_instruction(const char* name, Chunk* chunk, i32 offset);
 static i32 constant_long_instruction(const char* name, Chunk* chunk, i32 offset);
 // =================================================================

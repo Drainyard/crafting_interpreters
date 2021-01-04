@@ -13,7 +13,9 @@
 
 enum ObjType
 {
-    OBJ_STRING
+    OBJ_FUNCTION,
+    OBJ_NATIVE,
+    OBJ_STRING,
 };
 
 struct Obj
@@ -32,6 +34,21 @@ struct ObjString
     char chars[1];
 };
 
+struct ObjFunction
+{
+    Obj obj;
+    i32 arity;
+    Chunk chunk;
+    ObjString* name;
+};
+
+using NativeFn = Value(*)(i32 arg_count, Value* args);
+struct ObjNative
+{
+    Obj obj;
+    NativeFn function;
+};
+
 struct ObjectStore
 {
     Obj* objects;
@@ -47,8 +64,11 @@ struct Table;
 // =================================================================
 bool is_string(Value);
 char* as_cstring(Value);
+ObjFunction* as_function(Value value);
 ObjString* as_string(Value);
 ObjString* copy_string(ObjectStore*, Table* strings, const char*, i32);
+static ObjFunction* new_function(ObjectStore* store);
+static ObjNative* new_native(NativeFn function, ObjectStore* store);
 ObjString* take_string(ObjectStore*, Table* strings, char*, i32);
 void print_object(Value);
 void free_object(Obj*);
