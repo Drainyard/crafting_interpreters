@@ -36,6 +36,7 @@ enum OpCode
     OP_COMPARE,
     OP_LOOP,
     OP_CALL,
+    OP_CLOSURE,
     OP_RETURN
 };
 

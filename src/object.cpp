@@ -24,6 +24,11 @@ ObjFunction* as_function(Value value)
     return (ObjFunction*)value.as.obj;
 }
 
+ObjClosure* as_closure(Value value)
+{
+    return (ObjClosure*)value.as.obj;
+}
+
 NativeFn as_native(Value value)
 {
     return ((ObjNative*)value.as.obj)->function;
@@ -38,13 +43,20 @@ static Obj* allocate_object(ObjectStore* store, size_t size, ObjType type)
     return object;
 }
 
-static ObjFunction* new_function(ObjectStore* store)
+ObjFunction* new_function(ObjectStore* store)
 {
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
     function->arity = 0;
     function->name = NULL;
     init_chunk(&function->chunk);
     return function;
+}
+
+ObjClosure* new_closure(ObjFunction* function, ObjectStore* store)
+{
+    ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+    closure->function = function;
+    return closure;
 }
 
 static NativeArguments make_native_arguments(i32 arity, ...)
@@ -62,7 +74,7 @@ static NativeArguments make_native_arguments(i32 arity, ...)
     return arguments;
 }
 
-static ObjNative* new_native(NativeFn function, NativeArguments arguments, ObjectStore* store)
+ObjNative* new_native(NativeFn function, NativeArguments arguments, ObjectStore* store)
 {
     ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
     native->function       = function;
@@ -135,12 +147,18 @@ void free_object(Obj* object)
 {
     switch (object->type)
     {
+    case OBJ_CLOSURE:
+    {
+        FREE(ObjClosure, object);
+    }
+    break;
     case OBJ_FUNCTION:
     {
         ObjFunction* function = (ObjFunction*)object;
         free_chunk(&function->chunk);
         FREE(ObjFunction, object);
     }
+    break;
     case OBJ_NATIVE:
     {
         FREE(ObjNative, object);
@@ -159,6 +177,11 @@ void print_object(Value value)
 {
     switch(value.as.obj->type)
     {
+    case OBJ_CLOSURE:
+    {
+        print_function(as_closure(value)->function);
+    }
+    break;
     case OBJ_FUNCTION:
     {
         print_function((ObjFunction*)value.as.obj);

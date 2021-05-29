@@ -13,6 +13,7 @@
 
 enum ObjType
 {
+    OBJ_CLOSURE,
     OBJ_FUNCTION,
     OBJ_NATIVE,
     OBJ_STRING,
@@ -40,6 +41,12 @@ struct ObjFunction
     i32 arity;
     Chunk chunk;
     ObjString* name;
+};
+
+struct ObjClosure
+{
+    Obj obj;
+    ObjFunction* function;
 };
 
 #define MAX_ARITY 8
@@ -72,16 +79,18 @@ struct Table;
 // =================================================================
 // API Functions
 // =================================================================
-bool is_string(Value);
-char* as_cstring(Value);
+bool         is_string(Value);
+char*        as_cstring(Value);
+ObjClosure*  as_closure(Value value);
 ObjFunction* as_function(Value value);
-ObjString* as_string(Value);
-ObjString* copy_string(ObjectStore*, Table* strings, const char*, i32);
-static ObjFunction* new_function(ObjectStore* store);
-static ObjNative* new_native(NativeFn function, NativeArguments arguments, ObjectStore* store);
-ObjString* take_string(ObjectStore*, Table* strings, char*, i32);
-void print_object(Value);
-void free_object(Obj*);
+ObjString*   as_string(Value);
+ObjString*   copy_string(ObjectStore*, Table* strings, const char*, i32);
+ObjFunction* new_function(ObjectStore* store);
+ObjClosure*  new_closure(ObjFunction* function, ObjectStore* store);
+ObjNative*   new_native(NativeFn function, NativeArguments arguments, ObjectStore* store);
+ObjString*   take_string(ObjectStore*, Table* strings, char*, i32);
+void         print_object(Value);
+void         free_object(Obj*);
 // =================================================================
 
 // =================================================================

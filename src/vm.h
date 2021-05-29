@@ -13,7 +13,7 @@
 // =================================================================
 struct CallFrame
 {
-    ObjFunction* function;
+    ObjClosure* closure;
     u8* ip;
     Value* slots;
 };

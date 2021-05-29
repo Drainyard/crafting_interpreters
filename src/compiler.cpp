@@ -550,7 +550,7 @@ static void function(Parser* parser, FunctionType type)
     block(parser);
 
     ObjFunction* function = end_compiler(parser);
-    emit_bytes(parser, OP_CONSTANT, make_constant(parser, obj_val(function)));
+    emit_bytes(parser, OP_CLOSURE, make_constant(parser, obj_val(function)));
 }
 
 static void fun_declaration(Parser* parser)
