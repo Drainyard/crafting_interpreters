@@ -42,10 +42,20 @@ struct ObjFunction
     ObjString* name;
 };
 
+#define MAX_ARITY 8
+struct NativeArguments
+{
+    i32 arity;
+    ValueType types[MAX_ARITY];
+};
+
 using NativeFn = Value(*)(i32 arg_count, Value* args);
 struct ObjNative
 {
     Obj obj;
+    /* ValueType argument_types[8]; */
+    NativeArguments arguments;
+    /* i32 arity; */
     NativeFn function;
 };
 
@@ -68,7 +78,7 @@ ObjFunction* as_function(Value value);
 ObjString* as_string(Value);
 ObjString* copy_string(ObjectStore*, Table* strings, const char*, i32);
 static ObjFunction* new_function(ObjectStore* store);
-static ObjNative* new_native(NativeFn function, ObjectStore* store);
+static ObjNative* new_native(NativeFn function, NativeArguments arguments, ObjectStore* store);
 ObjString* take_string(ObjectStore*, Table* strings, char*, i32);
 void print_object(Value);
 void free_object(Obj*);

@@ -47,10 +47,26 @@ static ObjFunction* new_function(ObjectStore* store)
     return function;
 }
 
-static ObjNative* new_native(NativeFn function, ObjectStore* store)
+static NativeArguments make_native_arguments(i32 arity, ...)
+{
+    NativeArguments arguments = {};
+    arguments.arity = arity;
+    va_list args;
+    va_start(args, arity);
+    for(i32 i = 0; i < arity; i++)
+    {
+        ValueType type = va_arg(args, ValueType);
+        arguments.types[i] = type;
+    }
+    va_end(args);
+    return arguments;
+}
+
+static ObjNative* new_native(NativeFn function, NativeArguments arguments, ObjectStore* store)
 {
     ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
-    native->function = function;
+    native->function       = function;
+    native->arguments      = arguments;
     return native;
 }
 

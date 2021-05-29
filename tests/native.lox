@@ -4,11 +4,17 @@ fun fib(n)
 	return fib(n - 2) + fib(n - 1);
 }
 
+fun test(n, x)
+{
+	print n;
+	print x;
+}
+
 fun main()
 {
-	let start = clock();
-	print fib(35);
-	print clock() - start;
+	let str = "2.0f";
+	let val = atof(str);
+	print val;
 }
 
 main();

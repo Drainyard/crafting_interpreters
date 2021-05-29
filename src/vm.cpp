@@ -33,10 +33,10 @@ static void runtime_error(VM* vm, const char* format, ...)
     reset_stack(vm);
 }
 
-static void define_native(VM* vm, const char* name, NativeFn function)
+static void define_native(VM* vm, const char* name, NativeFn function, NativeArguments arguments)
 {
     push(vm, obj_val(copy_string(&vm->store, &vm->strings, name, (i32)strlen(name))));
-    push(vm, obj_val(new_native(function, &vm->store)));
+    push(vm, obj_val(new_native(function, arguments, &vm->store)));
     table_set(&vm->globals, as_string(vm->stack[0]), vm->stack[1]);
     pop(vm);
     pop(vm);
@@ -47,6 +47,25 @@ static Value clock_native(i32 arg_count, Value* args)
     return number_val((f64)clock() / CLOCKS_PER_SEC);
 }
 
+static Value sqrt_native(i32 arg_count, Value* args)
+{
+    Value value = args[0];
+    return number_val(sqrt(value.as.number));
+}
+
+static Value pow_native(i32 arg_count, Value* args)
+{
+    Value value    = args[0];
+    Value exponent = args[1];
+    return number_val(pow(value.as.number, exponent.as.number));
+}
+
+static Value atof_native(i32 arg_count, Value* args)
+{
+    Value value = args[0];
+    return number_val(atof(as_cstring(value)));
+}
+
 void init_vm(VM* vm)
 {
     reset_stack(vm);
@@ -54,7 +73,10 @@ void init_vm(VM* vm)
     init_table(&vm->strings);
     init_table(&vm->globals);
 
-    define_native(vm, "clock", clock_native);
+    define_native(vm, "clock", clock_native, make_native_arguments(0));
+    define_native(vm, "sqrt", sqrt_native, make_native_arguments(1, ValueType::VAL_NUMBER));
+    define_native(vm, "pow", pow_native, make_native_arguments(2, ValueType::VAL_NUMBER, ValueType::VAL_NUMBER));
+    define_native(vm, "atof", atof_native, make_native_arguments(1, ValueType::VAL_OBJ));
 }
 
 void free_vm(VM* vm)
@@ -113,6 +135,34 @@ static bool call_value(VM* vm, Value callee, i32 arg_count)
         return call(vm, as_function(callee), arg_count);
         case OBJ_NATIVE:
         {
+            ObjNative* obj = (ObjNative*)callee.as.obj;
+            if(arg_count > obj->arguments.arity)
+            {
+                // @Incomplete: Add formatting that reports native function name
+                runtime_error(vm, "Too many arguments in native function call.");
+                return false;            
+            }
+            else if(arg_count < obj->arguments.arity)
+            {
+                // @Incomplete: Add formatting that reports native function name
+                runtime_error(vm, "Not enough arguments for native function call.");
+                return false;
+            }
+
+            Value* arguments = vm->stack_top - arg_count;
+
+            for(i32 i = 0; i < arg_count; i++)
+            {
+                Value arg = arguments[i];
+                ValueType type = obj->arguments.types[i];
+                if(arg.type != type)
+                {
+                    // @Incomplete: Add formatting that reports native function name and argument types
+                    runtime_error(vm, "Type mismatch in native function call arguments.");
+                    return false;
+                }
+            }
+            
             NativeFn native = as_native(callee);
             Value result = native(arg_count, vm->stack_top - arg_count);
             vm->stack_top -= arg_count + 1;

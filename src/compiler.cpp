@@ -226,7 +226,7 @@ static u8 argument_list(Parser* parser)
                 error(parser, "Can't have more than 255 arguments.");
             }
             arg_count++;
-        } while (match(TOKEN_COMMA));
+        } while (match(parser, TOKEN_COMMA));
     }
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
     return arg_count;
