@@ -29,6 +29,8 @@ struct VM
     Table strings;
     Table globals;
 
+    ObjUpvalue* open_upvalues;
+
     ObjectStore store;
 };
 
@@ -56,7 +58,7 @@ static InterpretResult run(VM* vm);
 static void push(VM* vm, Value value);
 static Value pop(VM* vm);
 static Value peek(VM* vm, i32 distance);
-static bool is_falsey(Value value);
+static b32 is_falsey(Value value);
 static void concatenate(VM* vm);
 static void runtime_error(VM* vm, const char* format, ...);
 void free_objects(VM* vm);

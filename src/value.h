@@ -24,7 +24,7 @@ struct Value
     ValueType type;
     union
     {
-        bool boolean;
+        b32 boolean;
         f64 number;
         Obj* obj;
     } as;    
@@ -45,16 +45,16 @@ void init_value_array(ValueArray* array);
 void free_value_array(ValueArray* array);
 void write_value_array(ValueArray* array, Value value);
 void print_value(Value value);
-bool values_equal(Value a, Value b);
+b32 values_equal(Value a, Value b);
 Value number_val(f64 number);
-Value bool_val(bool boolean);
+Value bool_val(b32 boolean);
 Value nil_val();
 Value obj_val(Obj* object);
 Value obj_val(ObjString* object);
-bool is_number(Value value);
-bool is_bool(Value value);
-bool is_nil(Value value);
-bool is_obj(Value value);
+b32 is_number(Value value);
+b32 is_bool(Value value);
+b32 is_nil(Value value);
+b32 is_obj(Value value);
 // =================================================================
 
 #endif

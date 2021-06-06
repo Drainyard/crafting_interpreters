@@ -13,8 +13,8 @@ struct Parser
     Token current;
     Token previous;
 
-    bool had_error;
-    bool panic_mode;
+    b32 had_error;
+    b32 panic_mode;
 
     ObjectStore* store;
     Table* strings;
@@ -35,7 +35,7 @@ enum Precedence
     PREC_PRIMARY
 };
 
-using ParseFn = void(*)(Parser*, bool);
+using ParseFn = void(*)(Parser*, b32);
 struct ParseRule
 {
     ParseFn prefix;
@@ -47,7 +47,14 @@ struct Local
 {
     Token name;
     i32 depth;
-    bool immutable;
+    b32 is_captured;
+    b32 immutable;
+};
+
+struct Upvalue
+{
+    u8 index;
+    b32 is_local;
 };
 
 enum FunctionType
@@ -59,7 +66,7 @@ enum FunctionType
 struct Global
 {
     ObjString* name;
-    bool immutable;
+    b32 immutable;
 };
 
 Global globals[UINT8_COUNT];
@@ -74,6 +81,8 @@ struct Compiler
     
     Local locals[UINT8_COUNT];
     i32 local_count;
+
+    Upvalue upvalues[UINT8_COUNT];
     
     i32 scope_depth;
 };
@@ -111,10 +120,11 @@ static void parse_precedence(Parser* parser, Precedence precedence);
 static ParseRule* get_rule(TokenType type);
 static void expression(Parser* parser);
 static void declaration(Parser* parser);
-static void var_declaration(Parser* parser, bool immutable);
+static void var_declaration(Parser* parser, b32 immutable);
 static void statement(Parser* parser);
 
-static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* immutable);
+static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, b32* immutable);
+static i32 resolve_upvalue(Parser* parser, Compiler* compiler, Token* name, b32* immutable);
 static Global* get_global(Parser* parser, Compiler* compiler, Token* name);
 // =================================================================
 

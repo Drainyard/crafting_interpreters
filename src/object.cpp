@@ -1,10 +1,10 @@
 // @Incomplete: Consider all these functions as macros for inlining and efficiency?
-static inline bool is_obj_type(Value value, ObjType type)
+static inline b32 is_obj_type(Value value, ObjType type)
 {
     return is_obj(value) && value.as.obj->type == type;
 }
 
-bool is_string(Value value)
+b32 is_string(Value value)
 {
     return is_obj_type(value, OBJ_STRING);
 }
@@ -47,6 +47,7 @@ ObjFunction* new_function(ObjectStore* store)
 {
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
     function->arity = 0;
+    function->upvalue_count = 0;
     function->name = NULL;
     init_chunk(&function->chunk);
     return function;
@@ -54,8 +55,15 @@ ObjFunction* new_function(ObjectStore* store)
 
 ObjClosure* new_closure(ObjFunction* function, ObjectStore* store)
 {
+    ObjUpvalue** upvalues = ALLOCATE(ObjUpvalue*, function->upvalue_count);
+    for(i32 i = 0; i < function->upvalue_count; i++)
+    {
+        upvalues[i] = NULL;
+    }
     ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
-    closure->function = function;
+    closure->function      = function;
+    closure->upvalues      = upvalues;
+    closure->upvalue_count = function->upvalue_count;
     return closure;
 }
 
@@ -119,6 +127,15 @@ ObjString* copy_string(ObjectStore* store, Table* strings, const char* chars, i3
     return allocate_string(store, strings, chars, length);
 }
 
+ObjUpvalue*  new_upvalue(ObjectStore* store, Value* slot)
+{
+    ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
+    upvalue->location = slot;
+    upvalue->next     = NULL;
+    upvalue->closed   = nil_val();
+    return upvalue;
+}
+
 static void print_function(ObjFunction* function)
 {
     if (function->name == NULL)
@@ -147,29 +164,35 @@ void free_object(Obj* object)
 {
     switch (object->type)
     {
-    case OBJ_CLOSURE:
-    {
-        FREE(ObjClosure, object);
-    }
-    break;
-    case OBJ_FUNCTION:
-    {
-        ObjFunction* function = (ObjFunction*)object;
-        free_chunk(&function->chunk);
-        FREE(ObjFunction, object);
-    }
-    break;
-    case OBJ_NATIVE:
-    {
-        FREE(ObjNative, object);
-    }
-    break;
-    case OBJ_STRING:
-    {
-        FREE(ObjString, object);
-    }
-    break;
-    break;
+        case OBJ_CLOSURE:
+        {
+            ObjClosure* closure = (ObjClosure*)object;
+            FREE_ARRAY(ObjUpvalue*, closure->upvalues, closure->upvalue_count);
+            FREE(ObjClosure, object);
+        }
+        break;
+        case OBJ_FUNCTION:
+        {
+            ObjFunction* function = (ObjFunction*)object;
+            free_chunk(&function->chunk);
+            FREE(ObjFunction, object);
+        }
+        break;
+        case OBJ_NATIVE:
+        {
+            FREE(ObjNative, object);
+        }
+        break;
+        case OBJ_STRING:
+        {
+            FREE(ObjString, object);
+        }
+        break;
+        case OBJ_UPVALUE:
+        {
+            FREE(ObjUpvalue, object);
+        }
+        break;
     }
 }
 
@@ -177,25 +200,30 @@ void print_object(Value value)
 {
     switch(value.as.obj->type)
     {
-    case OBJ_CLOSURE:
-    {
-        print_function(as_closure(value)->function);
-    }
-    break;
-    case OBJ_FUNCTION:
-    {
-        print_function((ObjFunction*)value.as.obj);
-    }
-    break;
-    case OBJ_NATIVE:
-    {
-        printf("<native fn>");
-    }
-    break;
-    case OBJ_STRING:
-    {
-        printf("%s", as_cstring(value));
-    }
-    break;    
+        case OBJ_CLOSURE:
+        {
+            print_function(as_closure(value)->function);
+        }
+        break;
+        case OBJ_FUNCTION:
+        {
+            print_function((ObjFunction*)value.as.obj);
+        }
+        break;
+        case OBJ_NATIVE:
+        {
+            printf("<native fn>");
+        }
+        break;
+        case OBJ_STRING:
+        {
+            printf("%s", as_cstring(value));
+        }
+        break;
+        case OBJ_UPVALUE:
+        {
+            printf("upvalue");
+        }
+        break;
     }
 }
