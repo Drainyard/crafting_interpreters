@@ -919,3 +919,13 @@ ObjFunction* compile(const char* source, ObjectStore* output_store, Table* outpu
     ObjFunction* function = end_compiler(&parser);
     return parser.had_error ? NULL : function;
 }
+
+void mark_compiler_roots()
+{
+    Compiler* compiler = current;
+    while(compiler != NULL)
+    {
+        mark_object((Obj*)compiler->function);
+        compiler = compiler->enclosing;
+    }
+}

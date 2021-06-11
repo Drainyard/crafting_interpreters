@@ -85,6 +85,7 @@ ParseRule rules[TOKEN_EOF];
 // API Functions
 // =================================================================
 ObjFunction* compile(const char* source, ObjectStore* output_store, Table* output_strings);
+void mark_compiler_roots();
 void init_parse_rules();
 // =================================================================
 

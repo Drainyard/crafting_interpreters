@@ -38,8 +38,14 @@ static Obj* allocate_object(ObjectStore* store, size_t size, ObjType type)
 {
     Obj* object = (Obj*)reallocate(NULL, 0, size);
     object->type = type;
+    object->is_marked = false;
     object->next = store->objects;
     store->objects = object;
+
+#ifdef DEBUG_LOG_GC
+    printf("%p allocate %zu for %d\n", (void*)object, size, type);
+#endif
+    
     return object;
 }
 
@@ -145,6 +151,9 @@ ObjString* take_string(ObjectStore* store, Table* strings, char* chars, i32 leng
 
 void free_object(Obj* object)
 {
+#ifdef DEBUG_LOG_GC
+    printf("%p free type %d\n", (void*)object, object->type);
+#endif
     switch (object->type)
     {
     case OBJ_CLOSURE:
