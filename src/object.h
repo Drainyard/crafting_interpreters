@@ -23,6 +23,7 @@ enum ObjType
 struct Obj
 {
     ObjType type;
+    b32 is_marked;
     Obj* next;
 };
 
