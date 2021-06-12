@@ -6,7 +6,7 @@ Value number_val(f64 number)
     return value;
 }
 
-Value bool_val(bool boolean)
+Value bool_val(b32 boolean)
 {
     Value value = {};
     value.type = VAL_BOOL;
@@ -49,22 +49,22 @@ Value obj_val(ObjString* object)
     return obj_val((Obj*)object);
 }
 
-bool is_number(Value value)
+b32 is_number(Value value)
 {
     return value.type == VAL_NUMBER;
 }
 
-bool is_bool(Value value)
+b32 is_bool(Value value)
 {
     return value.type == VAL_BOOL;
 }
 
-bool is_nil(Value value)
+b32 is_nil(Value value)
 {
     return value.type == VAL_NIL;
 }
 
-bool is_obj(Value value)
+b32 is_obj(Value value)
 {
     return value.type == VAL_OBJ;
 }
@@ -110,7 +110,7 @@ void print_value(Value value)
     }    
 }
 
-bool values_equal(Value a, Value b)
+b32 values_equal(Value a, Value b)
 {
     if (a.type != b.type) return false;
 

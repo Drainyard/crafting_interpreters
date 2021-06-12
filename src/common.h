@@ -24,8 +24,10 @@ using u64 = uint64_t;
 using f32 = float;
 using f64 = double;
 
-#define DEBUG_PRINT_CODE
-#define DEBUG_TRACE_EXECUTION
+using b32 = i32; //@Note: Much more practical for struct packing
+
+/* #define DEBUG_PRINT_CODE */
+/* #define DEBUG_TRACE_EXECUTION */
 
 #define DEBUG_STRESS_GC
 #define DEBUG_LOG_GC

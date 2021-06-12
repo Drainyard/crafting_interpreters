@@ -1,0 +1,12 @@
+fun outer()
+{
+	let x = "outside";
+	fun inner()
+	{
+        x = "inside";
+	}
+    print x;
+    inner();
+    print x;
+}
+outer();

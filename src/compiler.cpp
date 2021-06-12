@@ -59,12 +59,12 @@ static void consume(Parser* parser, TokenType type, const char* message)
     error_at_current(parser, message);
 }
 
-static bool check(Parser* parser, TokenType type)
+static b32 check(Parser* parser, TokenType type)
 {
     return parser->current.type == type;
 }
 
-static bool match(Parser* parser, TokenType type)
+static b32 match(Parser* parser, TokenType type)
 {
     if (!check(parser, type)) return false;
     advance(parser);
@@ -152,8 +152,9 @@ static void init_compiler(Compiler* compiler, Parser* parser, FunctionType type)
     }
 
     Local* local = &current->locals[current->local_count++];
-    local->depth = 0;
-    local->name.start = "";
+    local->depth       = 0;
+    local->is_captured = false;
+    local->name.start  = "";
     local->name.length = 0;
 }
 
@@ -183,13 +184,21 @@ static void end_scope(Parser* parser)
 
     while (current->local_count > 0 &&
            current->locals[current->local_count - 1].depth > current->scope_depth)
-    {
-        emit_byte(parser, OP_POP);
+    {        
+        if(current->locals[current->local_count - 1].is_captured)
+        {
+            emit_byte(parser, OP_CLOSE_UPVALUE);
+        }
+        else
+        {
+            emit_byte(parser, OP_POP);
+        }
+        
         current->local_count--;
     }
 }
 
-static void binary(Parser* parser, bool can_assign)
+static void binary(Parser* parser, b32 can_assign)
 {
     TokenType operator_type = parser->previous.type;
 
@@ -232,13 +241,13 @@ static u8 argument_list(Parser* parser)
     return arg_count;
 }
 
-static void call(Parser* parser, bool can_assign)
+static void call(Parser* parser, b32 can_assign)
 {
     u8 arg_count = argument_list(parser);
     emit_bytes(parser, OP_CALL, arg_count);
 }
 
-static void literal(Parser* parser, bool can_assign)
+static void literal(Parser* parser, b32 can_assign)
 {
     switch(parser->previous.type)
     {
@@ -250,19 +259,19 @@ static void literal(Parser* parser, bool can_assign)
     }
 }
 
-static void grouping(Parser* parser, bool can_assign)
+static void grouping(Parser* parser, b32 can_assign)
 {
     expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");            
 }
 
-static void number(Parser* parser, bool can_assign)
+static void number(Parser* parser, b32 can_assign)
 {
     f64 value = strtod(parser->previous.start, NULL);
     emit_constant(parser, number_val(value));
 }
 
-static void or_(Parser* parser, bool can_assign)
+static void or_(Parser* parser, b32 can_assign)
 {
     i32 else_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
     i32 end_jump = emit_jump(parser, OP_JUMP);
@@ -274,21 +283,26 @@ static void or_(Parser* parser, bool can_assign)
     patch_jump(parser, end_jump);
 }
 
-static void string(Parser* parser, bool can_assign)
+static void string(Parser* parser, b32 can_assign)
 {
     emit_constant(parser, obj_val(copy_string(parser->store, parser->strings, parser->previous.start + 1,
                                               parser->previous.length - 2)));
 }
 
-static void named_variable(Parser* parser, Token name, bool can_assign)
+static void named_variable(Parser* parser, Token name, b32 can_assign)
 {
     u8 get_op, set_op;
-    bool immutable = false;
+    b32 immutable = false;
     i32 arg = resolve_local(parser, current, &name, &immutable);
     if (arg != -1)
     {
         get_op = OP_GET_LOCAL;
         set_op = OP_SET_LOCAL;
+    }
+    else if ((arg = resolve_upvalue(parser, current, &name, &immutable)) != -1)
+    {
+        get_op = OP_GET_UPVALUE;
+        set_op = OP_SET_UPVALUE;
     }
     else
     {
@@ -313,12 +327,12 @@ static void named_variable(Parser* parser, Token name, bool can_assign)
     }
 }
 
-static void variable(Parser* parser, bool can_assign)
+static void variable(Parser* parser, b32 can_assign)
 {
     named_variable(parser, parser->previous, can_assign);
 }
 
-static void unary(Parser* parser, bool can_assign)
+static void unary(Parser* parser, b32 can_assign)
 {
     TokenType operator_type = parser->previous.type;
 
@@ -343,7 +357,7 @@ static void parse_precedence(Parser* parser, Precedence precedence)
         return;
     }
     
-    bool can_assign = precedence <= PREC_ASSIGNMENT;
+    b32 can_assign = precedence <= PREC_ASSIGNMENT;
     prefix_rule(parser, can_assign);
 
     while (precedence <= get_rule(parser->current.type)->precedence)
@@ -365,7 +379,7 @@ static u8 identifier_constant(Parser* parser, Token* name)
                                                      name->length)));
 }
 
-static bool identifiers_equal(Token* a, Token* b)
+static b32 identifiers_equal(Token* a, Token* b)
 {
     if (a->length != b->length) return false;
     return memcmp(a->start, b->start, a->length) == 0;
@@ -385,7 +399,7 @@ static Global* get_global(Parser* parser, Compiler* compiler, Token* name)
     return NULL;
 }
 
-static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* immutable)
+static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, b32* immutable)
 {
     for (i32 i = compiler->local_count - 1; i >= 0; i--)
     {
@@ -400,11 +414,53 @@ static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, bool* 
             return i;
         }
     }
-
     return -1;
 }
 
-static void add_local(Parser* parser, Token name, bool immutable)
+static i32 add_upvalue(Parser* parser, Compiler* compiler, u8 index, b32 is_local)
+{
+    i32 upvalue_count = compiler->function->upvalue_count;    
+    for(i32 i = 0; i < upvalue_count; i++)
+    {
+        Upvalue* upvalue = &compiler->upvalues[i];
+        if(upvalue->index == index && upvalue->is_local == is_local)
+        {
+            return i;
+        }
+    }
+
+    if(upvalue_count == UINT8_COUNT)
+    {
+        error(parser, "Too many closure variables in function.");
+        return 0;
+    }
+    
+    compiler->upvalues[upvalue_count].is_local = is_local;
+    compiler->upvalues[upvalue_count].index    = index;
+    return compiler->function->upvalue_count++;
+}
+
+static i32 resolve_upvalue(Parser* parser, Compiler* compiler, Token* name, b32* immutable)
+{
+    if(compiler->enclosing == NULL) return -1;
+
+    i32 local = resolve_local(parser, compiler->enclosing, name, immutable);
+    if(local != -1)
+    {
+        compiler->enclosing->locals[local].is_captured = true;
+        return add_upvalue(parser, compiler, (u8)local, true);
+    }
+
+    i32 upvalue = resolve_upvalue(parser, compiler->enclosing, name, immutable);
+    if(upvalue != -1)
+    {
+        return add_upvalue(parser, compiler, (u8)upvalue, false);
+    }
+    
+    return -1;
+}
+
+static void add_local(Parser* parser, Token name, b32 immutable)
 {
     if (current->local_count == UINT8_COUNT)
     {
@@ -413,12 +469,13 @@ static void add_local(Parser* parser, Token name, bool immutable)
     }
     
     Local* local = &current->locals[current->local_count++];
-    local->name = name;
-    local->depth = -1;
-    local->immutable = immutable;
+    local->name        = name;
+    local->depth       = -1;
+    local->is_captured = false;
+    local->immutable   = immutable;
 }
 
-static void add_global(Parser* parser, Token name, bool immutable)
+static void add_global(Parser* parser, Token name, b32 immutable)
 {
     if (global_count == UINT8_COUNT)
     {
@@ -431,7 +488,7 @@ static void add_global(Parser* parser, Token name, bool immutable)
     global->immutable = immutable;
 }
 
-static void declare_variable(Parser* parser, bool immutable)
+static void declare_variable(Parser* parser, b32 immutable)
 {
     Token* name = &parser->previous;
     if (current->scope_depth == 0)
@@ -465,7 +522,7 @@ static void declare_variable(Parser* parser, bool immutable)
     }
 }
 
-static u8 parse_variable(Parser* parser, const char* error_message, bool immutable)
+static u8 parse_variable(Parser* parser, const char* error_message, b32 immutable)
 {
     consume(parser, TOKEN_IDENTIFIER, error_message);
 
@@ -492,7 +549,7 @@ static void define_variable(Parser* parser, u8 global)
     emit_bytes(parser, OP_DEFINE_GLOBAL, global);
 }
 
-static void and_(Parser* parser, bool can_assign)
+static void and_(Parser* parser, b32 can_assign)
 {
     i32 end_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
 
@@ -551,6 +608,12 @@ static void function(Parser* parser, FunctionType type)
 
     ObjFunction* function = end_compiler(parser);
     emit_bytes(parser, OP_CLOSURE, make_constant(parser, obj_val(function)));
+
+    for(i32 i = 0; i < function->upvalue_count; i++)
+    {
+        emit_byte(parser, compiler.upvalues[i].is_local ? 1 : 0);
+        emit_byte(parser, compiler.upvalues[i].index);
+    }
 }
 
 static void fun_declaration(Parser* parser)
@@ -699,7 +762,7 @@ static void if_statement(Parser* parser)
     patch_jump(parser, else_jump);
 }
 
-static void var_declaration(Parser* parser, bool immutable)
+static void var_declaration(Parser* parser, b32 immutable)
 {
     u8 global = parse_variable(parser, "Expect variable name.", immutable);
 
