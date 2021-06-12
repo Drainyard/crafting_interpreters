@@ -70,6 +70,10 @@ void init_vm(VM* vm)
 {
     reset_stack(vm);
     vm->store.objects = NULL;
+    vm->gray_count    = 0;
+    vm->gray_capacity = 0;
+    vm->gray_stack    = NULL;
+    
     init_table(&vm->strings);
     init_table(&vm->globals);
 
@@ -434,4 +438,6 @@ void free_objects(VM* vm)
         object = next;
     }
     vm->store.objects = NULL;
+
+    free(vm->gray_stack);
 }

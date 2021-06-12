@@ -146,6 +146,18 @@ ObjString* table_find_string(Table* table, const char* chars, i32 length, u32 ha
     }
 }
 
+void table_remove_white(Table* table)
+{
+    for (i32 i = 0; i < table->capacity; i++)
+    {
+        Entry* entry = &table->entries[i];
+        if (entry->key != NULL && !entry->key->obj.is_marked)
+        {
+            table_delete(table, entry->key);
+        }
+    }
+}
+
 void mark_table(Table* table)
 {
     for(i32 i = 0; i < table->capacity; i++)
