@@ -35,7 +35,7 @@ enum Precedence
     PREC_PRIMARY
 };
 
-using ParseFn = void(*)(Parser*, b32);
+using ParseFn = void(*)(GarbageCollector*, Parser*, b32);
 struct ParseRule
 {
     ParseFn prefix;
@@ -93,8 +93,8 @@ ParseRule rules[TOKEN_EOF];
 // =================================================================
 // API Functions
 // =================================================================
-ObjFunction* compile(const char* source, ObjectStore* output_store, Table* output_strings);
-void mark_compiler_roots();
+ObjFunction* compile(GarbageCollector* gc, const char* source, ObjectStore* output_store, Table* output_strings);
+void mark_compiler_roots(GarbageCollector* gc);
 void init_parse_rules();
 // =================================================================
 
@@ -110,19 +110,19 @@ static void consume(Parser* parser, TokenType type, const char* message);
 
 static Chunk* current_chunk();
 
-static void emit_byte(Parser* pasrer, u8 byte);
-static void emit_bytes(Parser* pasrer, u8 byte_1, u8 byte_2);
-static void emit_return(Parser* parser);
-static u8 make_constant(Parser* parser, Value value);
-static u8 identifier_constant(Parser* parser, Token* name);
-static void emit_constant(Parser* parser);
+static void emit_byte(GarbageCollector* gc, Parser* pasrer, u8 byte);
+static void emit_bytes(GarbageCollector* gc, Parser* pasrer, u8 byte_1, u8 byte_2);
+static void emit_return(GarbageCollector* gc, Parser* parser);
+static u8 make_constant(GarbageCollector* gc, Parser* parser, Value value);
+static u8 identifier_constant(GarbageCollector* gc, Parser* parser, Token* name);
+static void emit_constant(GarbageCollector* gc, Parser* parser);
 static ObjFunction* end_compiler(Parser* parser);
-static void parse_precedence(Parser* parser, Precedence precedence);
+static void parse_precedence(GarbageCollector* gc, Parser* parser, Precedence precedence);
 static ParseRule* get_rule(TokenType type);
-static void expression(Parser* parser);
-static void declaration(Parser* parser);
-static void var_declaration(Parser* parser, b32 immutable);
-static void statement(Parser* parser);
+static void expression(GarbageCollector* gc, Parser* parser);
+static void declaration(GarbageCollector* gc, Parser* parser);
+static void var_declaration(GarbageCollector* gc, Parser* parser, b32 immutable);
+static void statement(GarbageCollector* gc, Parser* parser);
 
 static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, b32* immutable);
 static i32 resolve_upvalue(Parser* parser, Compiler* compiler, Token* name, b32* immutable);

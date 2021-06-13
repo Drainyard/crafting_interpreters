@@ -71,45 +71,45 @@ static b32 match(Parser* parser, TokenType type)
     return true;
 }
 
-static void emit_byte(Parser* parser, u8 byte)
+static void emit_byte(GarbageCollector* gc, Parser* parser, u8 byte)
 {
-    write_chunk(current_chunk(), byte, parser->previous.line);
+    write_chunk(gc, current_chunk(), byte, parser->previous.line);
 }
 
-static void emit_bytes(Parser* parser, u8 byte_1, u8 byte_2)
+static void emit_bytes(GarbageCollector* gc, Parser* parser, u8 byte_1, u8 byte_2)
 {
-    emit_byte(parser, byte_1);
-    emit_byte(parser, byte_2);
+    emit_byte(gc, parser, byte_1);
+    emit_byte(gc, parser, byte_2);
 }
 
-static void emit_loop(Parser* parser, i32 loop_start)
+static void emit_loop(GarbageCollector* gc, Parser* parser, i32 loop_start)
 {
-    emit_byte(parser, OP_LOOP);
+    emit_byte(gc, parser, OP_LOOP);
 
     i32 offset = current_chunk()->count - loop_start + 2;
     if (offset > UINT16_MAX) error(parser, "Loop body too large.");
 
-    emit_byte(parser, (offset >> 8) & 0xff);
-    emit_byte(parser, offset & 0xff);
+    emit_byte(gc, parser, (offset >> 8) & 0xff);
+    emit_byte(gc, parser, offset & 0xff);
 }
 
-static i32 emit_jump(Parser* parser, u8 instruction)
+static i32 emit_jump(GarbageCollector* gc, Parser* parser, u8 instruction)
 {
-    emit_byte(parser, instruction);
-    emit_byte(parser, 0xff);
-    emit_byte(parser, 0xff);
+    emit_byte(gc, parser, instruction);
+    emit_byte(gc, parser, 0xff);
+    emit_byte(gc, parser, 0xff);
     return current_chunk()->count - 2;
 }
 
-static void emit_return(Parser* parser)
+static void emit_return(GarbageCollector* gc, Parser* parser)
 {
-    emit_byte(parser, OP_NIL);
-    emit_byte(parser, OP_RETURN);
+    emit_byte(gc, parser, OP_NIL);
+    emit_byte(gc, parser, OP_RETURN);
 }
 
-static u8 make_constant(Parser* parser, Value value)
+static u8 make_constant(GarbageCollector* gc, Parser* parser, Value value)
 {
-    i32 constant = add_constant(current_chunk(), value);
+    i32 constant = add_constant(gc, current_chunk(), value);
     if (constant > UINT8_MAX)
     {
         error(parser, "Too many constants in one chunk");
@@ -118,9 +118,9 @@ static u8 make_constant(Parser* parser, Value value)
     return (u8)constant;
 }
 
-static void emit_constant(Parser* parser, Value value)
+static void emit_constant(GarbageCollector* gc, Parser* parser, Value value)
 {
-    emit_bytes(parser, OP_CONSTANT, make_constant(parser, value));
+    emit_bytes(gc, parser, OP_CONSTANT, make_constant(gc, parser, value));
 }
 
 static void patch_jump(Parser* parser, i32 offset)
@@ -136,19 +136,19 @@ static void patch_jump(Parser* parser, i32 offset)
     current_chunk()->code[offset + 1] = jump & 0xff;
 }
 
-static void init_compiler(Compiler* compiler, Parser* parser, FunctionType type)
+static void init_compiler(Compiler* compiler, GarbageCollector* gc, Parser* parser, FunctionType type)
 {
     compiler->enclosing = current;
     compiler->function = NULL;
     compiler->type = type;
     compiler->local_count = 0;
     compiler->scope_depth = 0;
-    compiler->function = new_function(parser->store);
+    compiler->function = new_function(gc, parser->store);
     current = compiler;
 
     if (type != TYPE_SCRIPT)
     {
-        current->function->name = copy_string(parser->store, parser->strings, parser->previous.start, parser->previous.length);
+        current->function->name = copy_string(gc, parser->store, parser->strings, parser->previous.start, parser->previous.length);
     }
 
     Local* local = &current->locals[current->local_count++];
@@ -158,7 +158,7 @@ static void init_compiler(Compiler* compiler, Parser* parser, FunctionType type)
     local->name.length = 0;
 }
 
-static ObjFunction* end_compiler(Parser* parser)
+static ObjFunction* end_compiler(GarbageCollector* gc, Parser* parser)
 {
     ObjFunction* function = current->function;
 #ifdef DEBUG_PRINT_CODE
@@ -167,7 +167,7 @@ static ObjFunction* end_compiler(Parser* parser)
         disassemble_chunk(current_chunk(), function->name != NULL ? function->name->chars : "<script>");
     }
 #endif
-    emit_return(parser);
+    emit_return(gc, parser);
     current = current->enclosing;
 
     return function;
@@ -178,7 +178,7 @@ static void begin_scope()
     current->scope_depth++;
 }
 
-static void end_scope(Parser* parser)
+static void end_scope(GarbageCollector* gc, Parser* parser)
 {
     current->scope_depth--;
 
@@ -187,49 +187,49 @@ static void end_scope(Parser* parser)
     {        
         if(current->locals[current->local_count - 1].is_captured)
         {
-            emit_byte(parser, OP_CLOSE_UPVALUE);
+            emit_byte(gc, parser, OP_CLOSE_UPVALUE);
         }
         else
         {
-            emit_byte(parser, OP_POP);
+            emit_byte(gc, parser, OP_POP);
         }
         
         current->local_count--;
     }
 }
 
-static void binary(Parser* parser, b32 can_assign)
+static void binary(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
     TokenType operator_type = parser->previous.type;
 
     ParseRule* rule = get_rule(operator_type);
-    parse_precedence(parser, (Precedence)(rule->precedence + 1));
+    parse_precedence(gc, parser, (Precedence)(rule->precedence + 1));
 
     switch(operator_type)
     {
-    case TOKEN_BANG_EQUAL:        emit_bytes(parser, OP_EQUAL, OP_NOT); break;
-    case TOKEN_EQUAL_EQUAL:       emit_byte(parser, OP_EQUAL); break;
-    case TOKEN_GREATER:           emit_byte(parser, OP_GREATER); break;
-    case TOKEN_GREATER_EQUAL:     emit_bytes(parser, OP_LESS, OP_NOT); break;
-    case TOKEN_LESS:              emit_byte(parser, OP_LESS); break;
-    case TOKEN_LESS_EQUAL:        emit_bytes(parser, OP_GREATER, OP_NOT); break;
-    case TOKEN_PLUS:              emit_byte(parser, OP_ADD); break;
-    case TOKEN_MINUS:             emit_byte(parser, OP_SUBTRACT); break;
-    case TOKEN_STAR:              emit_byte(parser, OP_MULTIPLY); break;
-    case TOKEN_SLASH:             emit_byte(parser, OP_DIVIDE); break;
-    default:
-    return;
+        case TOKEN_BANG_EQUAL:        emit_bytes(gc, parser, OP_EQUAL, OP_NOT); break;
+        case TOKEN_EQUAL_EQUAL:       emit_byte(gc, parser, OP_EQUAL); break;
+        case TOKEN_GREATER:           emit_byte(gc, parser, OP_GREATER); break;
+        case TOKEN_GREATER_EQUAL:     emit_bytes(gc, parser, OP_LESS, OP_NOT); break;
+        case TOKEN_LESS:              emit_byte(gc, parser, OP_LESS); break;
+        case TOKEN_LESS_EQUAL:        emit_bytes(gc, parser, OP_GREATER, OP_NOT); break;
+        case TOKEN_PLUS:              emit_byte(gc, parser, OP_ADD); break;
+        case TOKEN_MINUS:             emit_byte(gc, parser, OP_SUBTRACT); break;
+        case TOKEN_STAR:              emit_byte(gc, parser, OP_MULTIPLY); break;
+        case TOKEN_SLASH:             emit_byte(gc, parser, OP_DIVIDE); break;
+        default:
+        return;
     }
 }
 
-static u8 argument_list(Parser* parser)
+static u8 argument_list(GarbageCollector* gc, Parser* parser)
 {
     u8 arg_count = 0;
     if (!check(parser, TOKEN_RIGHT_PAREN))
     {
         do
         {
-            expression(parser);
+            expression(gc, parser);
             if (arg_count == 255)
             {
                 error(parser, "Can't have more than 255 arguments.");
@@ -241,55 +241,55 @@ static u8 argument_list(Parser* parser)
     return arg_count;
 }
 
-static void call(Parser* parser, b32 can_assign)
+static void call(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
-    u8 arg_count = argument_list(parser);
-    emit_bytes(parser, OP_CALL, arg_count);
+    u8 arg_count = argument_list(gc, parser);
+    emit_bytes(gc, parser, OP_CALL, arg_count);
 }
 
-static void literal(Parser* parser, b32 can_assign)
+static void literal(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
     switch(parser->previous.type)
     {
-    case TOKEN_FALSE: emit_byte(parser, OP_FALSE); break;
-    case TOKEN_NIL: emit_byte(parser, OP_NIL); break;
-    case TOKEN_TRUE: emit_byte(parser, OP_TRUE); break;
+    case TOKEN_FALSE: emit_byte(gc, parser, OP_FALSE); break;
+    case TOKEN_NIL: emit_byte(gc, parser, OP_NIL); break;
+    case TOKEN_TRUE: emit_byte(gc, parser, OP_TRUE); break;
     default:
     return;
     }
 }
 
-static void grouping(Parser* parser, b32 can_assign)
+static void grouping(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
-    expression(parser);
+    expression(gc, parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");            
 }
 
-static void number(Parser* parser, b32 can_assign)
+static void number(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
     f64 value = strtod(parser->previous.start, NULL);
-    emit_constant(parser, number_val(value));
+    emit_constant(gc, parser, number_val(value));
 }
 
-static void or_(Parser* parser, b32 can_assign)
+static void or_(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
-    i32 else_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
-    i32 end_jump = emit_jump(parser, OP_JUMP);
+    i32 else_jump = emit_jump(gc, parser, OP_JUMP_IF_FALSE);
+    i32 end_jump = emit_jump(gc, parser, OP_JUMP);
 
     patch_jump(parser, else_jump);
-    emit_byte(parser, OP_POP);
+    emit_byte(gc, parser, OP_POP);
 
-    parse_precedence(parser, PREC_OR);
+    parse_precedence(gc, parser, PREC_OR);
     patch_jump(parser, end_jump);
 }
 
-static void string(Parser* parser, b32 can_assign)
+static void string(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
-    emit_constant(parser, obj_val(copy_string(parser->store, parser->strings, parser->previous.start + 1,
+    emit_constant(gc, parser, obj_val(copy_string(gc, parser->store, parser->strings, parser->previous.start + 1,
                                               parser->previous.length - 2)));
 }
 
-static void named_variable(Parser* parser, Token name, b32 can_assign)
+static void named_variable(GarbageCollector* gc, Parser* parser, Token name, b32 can_assign)
 {
     u8 get_op, set_op;
     b32 immutable = false;
@@ -311,43 +311,43 @@ static void named_variable(Parser* parser, Token name, b32 can_assign)
         {
             immutable = global->immutable;
         }
-        arg = identifier_constant(parser, &name);
+        arg = identifier_constant(gc, parser, &name);
         get_op = OP_GET_GLOBAL;
         set_op = OP_SET_GLOBAL;
     }
     
     if (can_assign && !immutable && match(parser, TOKEN_EQUAL))
     {
-        expression(parser);
-        emit_bytes(parser, set_op, (u8)arg);
+        expression(gc, parser);
+        emit_bytes(gc, parser, set_op, (u8)arg);
     }
     else
     {
-        emit_bytes(parser, get_op, (u8)arg);
+        emit_bytes(gc, parser, get_op, (u8)arg);
     }
 }
 
-static void variable(Parser* parser, b32 can_assign)
+static void variable(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
-    named_variable(parser, parser->previous, can_assign);
+    named_variable(gc, parser, parser->previous, can_assign);
 }
 
-static void unary(Parser* parser, b32 can_assign)
+static void unary(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
     TokenType operator_type = parser->previous.type;
 
-    parse_precedence(parser, PREC_UNARY);
+    parse_precedence(gc, parser, PREC_UNARY);
 
     switch(operator_type)
     {
-    case TOKEN_BANG: emit_byte(parser, OP_NOT); break;
-    case TOKEN_MINUS: emit_byte(parser, OP_NEGATE); break;
+    case TOKEN_BANG: emit_byte(gc, parser, OP_NOT); break;
+    case TOKEN_MINUS: emit_byte(gc, parser, OP_NEGATE); break;
     default:
     return;
     }
 }
 
-static void parse_precedence(Parser* parser, Precedence precedence)
+static void parse_precedence(GarbageCollector* gc, Parser* parser, Precedence precedence)
 {
     advance(parser);
     ParseFn prefix_rule = get_rule(parser->previous.type)->prefix;
@@ -358,13 +358,13 @@ static void parse_precedence(Parser* parser, Precedence precedence)
     }
     
     b32 can_assign = precedence <= PREC_ASSIGNMENT;
-    prefix_rule(parser, can_assign);
+    prefix_rule(gc, parser, can_assign);
 
     while (precedence <= get_rule(parser->current.type)->precedence)
     {
         advance(parser);
         ParseFn infix_rule = get_rule(parser->previous.type)->infix;
-        infix_rule(parser, can_assign);
+        infix_rule(gc, parser, can_assign);
     }
 
     if (can_assign && match(parser, TOKEN_EQUAL))
@@ -373,9 +373,9 @@ static void parse_precedence(Parser* parser, Precedence precedence)
     }
 }
 
-static u8 identifier_constant(Parser* parser, Token* name)
+static u8 identifier_constant(GarbageCollector* gc, Parser* parser, Token* name)
 {
-    return make_constant(parser, obj_val(copy_string(parser->store, parser->strings, name->start,
+    return make_constant(gc, parser, obj_val(copy_string(gc, parser->store, parser->strings, name->start,
                                                      name->length)));
 }
 
@@ -475,7 +475,7 @@ static void add_local(Parser* parser, Token name, b32 immutable)
     local->immutable   = immutable;
 }
 
-static void add_global(Parser* parser, Token name, b32 immutable)
+static void add_global(GarbageCollector* gc, Parser* parser, Token name, b32 immutable)
 {
     if (global_count == UINT8_COUNT)
     {
@@ -484,11 +484,11 @@ static void add_global(Parser* parser, Token name, b32 immutable)
     }
 
     Global* global = &globals[global_count++];
-    global->name = copy_string(parser->store, parser->strings, name.start, name.length);
+    global->name = copy_string(gc, parser->store, parser->strings, name.start, name.length);
     global->immutable = immutable;
 }
 
-static void declare_variable(Parser* parser, b32 immutable)
+static void declare_variable(GarbageCollector* gc, Parser* parser, b32 immutable)
 {
     Token* name = &parser->previous;
     if (current->scope_depth == 0)
@@ -501,7 +501,7 @@ static void declare_variable(Parser* parser, b32 immutable)
                 error(parser, "Already global with this name.");
             }
         }
-        add_global(parser, *name, immutable);
+        add_global(gc, parser, *name, immutable);
     }
     else
     {
@@ -522,14 +522,14 @@ static void declare_variable(Parser* parser, b32 immutable)
     }
 }
 
-static u8 parse_variable(Parser* parser, const char* error_message, b32 immutable)
+static u8 parse_variable(GarbageCollector* gc, Parser* parser, const char* error_message, b32 immutable)
 {
     consume(parser, TOKEN_IDENTIFIER, error_message);
 
-    declare_variable(parser, immutable);
+    declare_variable(gc, parser, immutable);
     if (current->scope_depth > 0) return 0;
 
-    return identifier_constant(parser, &parser->previous);
+    return identifier_constant(gc, parser, &parser->previous);
 }
 
 static void mark_initialized()
@@ -538,7 +538,7 @@ static void mark_initialized()
     current->locals[current->local_count - 1].depth = current->scope_depth;
 }
 
-static void define_variable(Parser* parser, u8 global)
+static void define_variable(GarbageCollector* gc, Parser* parser, u8 global)
 {
     if (current->scope_depth > 0)
     {
@@ -546,15 +546,15 @@ static void define_variable(Parser* parser, u8 global)
         return;
     }
     
-    emit_bytes(parser, OP_DEFINE_GLOBAL, global);
+    emit_bytes(gc, parser, OP_DEFINE_GLOBAL, global);
 }
 
-static void and_(Parser* parser, b32 can_assign)
+static void and_(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
-    i32 end_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+    i32 end_jump = emit_jump(gc, parser, OP_JUMP_IF_FALSE);
 
-    emit_byte(parser, OP_POP);
-    parse_precedence(parser, PREC_AND);
+    emit_byte(gc, parser, OP_POP);
+    parse_precedence(gc, parser, PREC_AND);
 
     patch_jump(parser, end_jump);
 }
@@ -564,25 +564,25 @@ static ParseRule* get_rule(TokenType type)
     return &rules[type];
 }
 
-static void expression(Parser* parser)
+static void expression(GarbageCollector* gc, Parser* parser)
 {
-    parse_precedence(parser, PREC_ASSIGNMENT);
+    parse_precedence(gc, parser, PREC_ASSIGNMENT);
 }
 
-static void block(Parser* parser)
+static void block(GarbageCollector* gc, Parser* parser)
 {
     while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF))
     {
-        declaration(parser);
+        declaration(gc, parser);
     }
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
-static void function(Parser* parser, FunctionType type)
+static void function(GarbageCollector* gc, Parser* parser, FunctionType type)
 {
     Compiler compiler = {};
-    init_compiler(&compiler, parser, type);
+    init_compiler(&compiler, gc, parser, type);
     begin_scope();
 
     consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after function name.");
@@ -596,42 +596,42 @@ static void function(Parser* parser, FunctionType type)
                 error_at_current(parser, "Can't have more than 255 parameters.");
             }
 
-            u8 param_constant = parse_variable(parser, "Expect parameter name.", true); // @Note: Check for default values?
-            define_variable(parser, param_constant);
+            u8 param_constant = parse_variable(gc, parser, "Expect parameter name.", true); // @Note: Check for default values?
+            define_variable(gc, parser, param_constant);
         } while (match(parser, TOKEN_COMMA));
     }
     
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
 
     consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before function body.");
-    block(parser);
+    block(gc, parser);
 
-    ObjFunction* function = end_compiler(parser);
-    emit_bytes(parser, OP_CLOSURE, make_constant(parser, obj_val(function)));
+    ObjFunction* function = end_compiler(gc, parser);
+    emit_bytes(gc, parser, OP_CLOSURE, make_constant(gc, parser, obj_val(function)));
 
     for(i32 i = 0; i < function->upvalue_count; i++)
     {
-        emit_byte(parser, compiler.upvalues[i].is_local ? 1 : 0);
-        emit_byte(parser, compiler.upvalues[i].index);
+        emit_byte(gc, parser, compiler.upvalues[i].is_local ? 1 : 0);
+        emit_byte(gc, parser, compiler.upvalues[i].index);
     }
 }
 
-static void fun_declaration(Parser* parser)
+static void fun_declaration(GarbageCollector* gc, Parser* parser)
 {
-    u8 global = parse_variable(parser, "Expect function name.", true);
+    u8 global = parse_variable(gc, parser, "Expect function name.", true);
     mark_initialized();
-    function(parser, TYPE_FUNCTION);
-    define_variable(parser, global);
+    function(gc, parser, TYPE_FUNCTION);
+    define_variable(gc, parser, global);
 }
 
-static void expression_statement(Parser* parser)
+static void expression_statement(GarbageCollector* gc, Parser* parser)
 {
-    expression(parser);
+    expression(gc, parser);
     consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression.");
-    emit_byte(parser, OP_POP);
+    emit_byte(gc, parser, OP_POP);
 }
 
-static void for_statement(Parser* parser)
+static void for_statement(GarbageCollector* gc, Parser* parser)
 {
     begin_scope();
     consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
@@ -641,15 +641,15 @@ static void for_statement(Parser* parser)
     }
     else if (match(parser, TOKEN_LET))
     {
-        var_declaration(parser, false);
+        var_declaration(gc, parser, false);
     }
     else if (match(parser, TOKEN_CONST))
     {
-        var_declaration(parser, true);
+        var_declaration(gc, parser, true);
     }
     else
     {
-        expression_statement(parser);
+        expression_statement(gc, parser);
     }
 
     i32 loop_start = current_chunk()->count;
@@ -658,44 +658,44 @@ static void for_statement(Parser* parser)
 
     if (!match(parser, TOKEN_SEMICOLON))
     {
-        expression(parser);
+        expression(gc, parser);
         consume(parser, TOKEN_SEMICOLON, "Expect ';' after loop condition.");
 
-        exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
-        emit_byte(parser, OP_POP);
+        exit_jump = emit_jump(gc, parser, OP_JUMP_IF_FALSE);
+        emit_byte(gc, parser, OP_POP);
     }
 
     if (!match(parser, TOKEN_RIGHT_PAREN))
     {
-        i32 body_jump = emit_jump(parser, OP_JUMP);
+        i32 body_jump = emit_jump(gc, parser, OP_JUMP);
 
         i32 increment_start = current_chunk()->count;
-        expression(parser);
-        emit_byte(parser, OP_POP);
+        expression(gc, parser);
+        emit_byte(gc, parser, OP_POP);
         consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
 
-        emit_loop(parser, loop_start);
+        emit_loop(gc, parser, loop_start);
         loop_start = increment_start;
         patch_jump(parser, body_jump);
     }       
 
-    statement(parser);
+    statement(gc, parser);
 
-    emit_loop(parser, loop_start);
+    emit_loop(gc, parser, loop_start);
 
     if (exit_jump != -1)
     {
         patch_jump(parser, exit_jump);
-        emit_byte(parser, OP_POP);
+        emit_byte(gc, parser, OP_POP);
     }
 
-    end_scope(parser);
+    end_scope(gc, parser);
 }
 
-static void switch_statement(Parser* parser)
+static void switch_statement(GarbageCollector* gc, Parser* parser)
 {
     consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
-    expression(parser);
+    expression(gc, parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after switch condition.");
 
     consume(parser, TOKEN_LEFT_BRACE, "Expect '{' after switch expression.");
@@ -706,31 +706,31 @@ static void switch_statement(Parser* parser)
     while (match(parser, TOKEN_CASE))
     {
         // Parse the case value
-        expression(parser);
+        expression(gc, parser);
 
         // consume colon
         consume(parser, TOKEN_COLON, "Expect ':' after case value.");
 
         // Check for equality
-        emit_byte(parser, OP_COMPARE);
-        i32 then_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+        emit_byte(gc, parser, OP_COMPARE);
+        i32 then_jump = emit_jump(gc, parser, OP_JUMP_IF_FALSE);
 
         // If false
-        emit_byte(parser, OP_POP); // pop the value
-        emit_byte(parser, OP_POP);
-        statement(parser);
+        emit_byte(gc, parser, OP_POP); // pop the value
+        emit_byte(gc, parser, OP_POP);
+        statement(gc, parser);
 
-        exit_jumps[exit_jump_count++] = emit_jump(parser, OP_JUMP);
+        exit_jumps[exit_jump_count++] = emit_jump(gc, parser, OP_JUMP);
 
         patch_jump(parser, then_jump);
-        emit_byte(parser, OP_POP); // pop the value
-        emit_byte(parser, OP_POP);
+        emit_byte(gc, parser, OP_POP); // pop the value
+        emit_byte(gc, parser, OP_POP);
     }
 
     if (match(parser, TOKEN_DEFAULT))
     {
         consume(parser, TOKEN_COLON, "Expect ':' after default label.");
-        statement(parser);
+        statement(gc, parser);
     }
 
     for (i32 i = 0; i < exit_jump_count; i++)
@@ -738,37 +738,37 @@ static void switch_statement(Parser* parser)
         patch_jump(parser, exit_jumps[i]);
     }
 
-    emit_byte(parser, OP_POP);
+    emit_byte(gc, parser, OP_POP);
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after switch statement.");
 }
 
-static void if_statement(Parser* parser)
+static void if_statement(GarbageCollector* gc, Parser* parser)
 {
     consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
-    expression(parser);
+    expression(gc, parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
-    i32 then_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
-    emit_byte(parser, OP_POP);
-    statement(parser);
-    i32 else_jump = emit_jump(parser, OP_JUMP);
+    i32 then_jump = emit_jump(gc, parser, OP_JUMP_IF_FALSE);
+    emit_byte(gc, parser, OP_POP);
+    statement(gc, parser);
+    i32 else_jump = emit_jump(gc, parser, OP_JUMP);
 
     patch_jump(parser, then_jump);
 
-    emit_byte(parser, OP_POP);
+    emit_byte(gc, parser, OP_POP);
 
-    if (match(parser, TOKEN_ELSE)) statement(parser);
+    if (match(parser, TOKEN_ELSE)) statement(gc, parser);
     patch_jump(parser, else_jump);
 }
 
-static void var_declaration(Parser* parser, b32 immutable)
+static void var_declaration(GarbageCollector* gc, Parser* parser, b32 immutable)
 {
-    u8 global = parse_variable(parser, "Expect variable name.", immutable);
+    u8 global = parse_variable(gc, parser, "Expect variable name.", immutable);
 
     if (match(parser, TOKEN_EQUAL))
     {
-        expression(parser);
+        expression(gc, parser);
     }
     else if (immutable && !match(parser, TOKEN_EQUAL))
     {
@@ -776,21 +776,21 @@ static void var_declaration(Parser* parser, b32 immutable)
     }
     else 
     {
-        emit_byte(parser, OP_NIL);
+        emit_byte(gc, parser, OP_NIL);
     }
 
     consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
-    define_variable(parser, global);
+    define_variable(gc, parser, global);
 }
 
-static void print_statement(Parser* parser)
+static void print_statement(GarbageCollector* gc, Parser* parser)
 {
-    expression(parser);
+    expression(gc, parser);
     consume(parser, TOKEN_SEMICOLON, "Expect ';' after value.");
-    emit_byte(parser, OP_PRINT);
+    emit_byte(gc, parser, OP_PRINT);
 }
 
-static void return_statement(Parser* parser)
+static void return_statement(GarbageCollector* gc, Parser* parser)
 {
     if (current->type == TYPE_SCRIPT)
     {
@@ -799,33 +799,33 @@ static void return_statement(Parser* parser)
     
     if (match(parser, TOKEN_SEMICOLON))
     {
-        emit_return(parser);
+        emit_return(gc, parser);
     }
     else
     {
-        expression(parser);
+        expression(gc, parser);
         consume(parser, TOKEN_SEMICOLON, "Expect ';' after return value.");
-        emit_byte(parser, OP_RETURN);
+        emit_byte(gc, parser, OP_RETURN);
     }
 }
 
-static void while_statement(Parser* parser)
+static void while_statement(GarbageCollector* gc, Parser* parser)
 {
     i32 loop_start = current_chunk()->count;
     
     consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
-    expression(parser);
+    expression(gc, parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
-    i32 exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+    i32 exit_jump = emit_jump(gc, parser, OP_JUMP_IF_FALSE);
 
-    emit_byte(parser, OP_POP);
-    statement(parser);
+    emit_byte(gc, parser, OP_POP);
+    statement(gc, parser);
 
-    emit_loop(parser, loop_start);
+    emit_loop(gc, parser, loop_start);
 
     patch_jump(parser, exit_jump);
-    emit_byte(parser, OP_POP);
+    emit_byte(gc, parser, OP_POP);
 }
 
 static void synchronize(Parser* parser)
@@ -856,63 +856,63 @@ static void synchronize(Parser* parser)
     }
 }
 
-static void declaration(Parser* parser)
+static void declaration(GarbageCollector* gc, Parser* parser)
 {
     if (match(parser, TOKEN_FUN))
     {
-        fun_declaration(parser);
+        fun_declaration(gc, parser);
     }
     else if (match(parser, TOKEN_LET))
     {
-        var_declaration(parser, false);
+        var_declaration(gc, parser, false);
     }
     else if (match(parser, TOKEN_CONST))
     {
-        var_declaration(parser, true);
+        var_declaration(gc, parser, true);
     }
     else
     {
-        statement(parser);
+        statement(gc, parser);
     }
 
     if (parser->panic_mode) synchronize(parser);
 }
 
-static void statement(Parser* parser)
+static void statement(GarbageCollector* gc, Parser* parser)
 {
     if (match(parser, TOKEN_PRINT))
     {
-        print_statement(parser);
+        print_statement(gc, parser);
     }
     else if (match(parser, TOKEN_IF))
     {
-        if_statement(parser);
+        if_statement(gc, parser);
     }
     else if (match(parser, TOKEN_RETURN))
     {
-        return_statement(parser);
+        return_statement(gc, parser);
     }
     else if (match(parser, TOKEN_WHILE))
     {
-        while_statement(parser);
+        while_statement(gc, parser);
     }
     else if (match(parser, TOKEN_FOR))
     {
-        for_statement(parser);
+        for_statement(gc, parser);
     }
     else if (match(parser, TOKEN_SWITCH))
     {
-        switch_statement(parser);
+        switch_statement(gc, parser);
     }
     else if (match(parser, TOKEN_LEFT_BRACE))
     {
         begin_scope();
-        block(parser);
-        end_scope(parser);
+        block(gc, parser);
+        end_scope(gc, parser);
     }
     else
     {
-        expression_statement(parser);
+        expression_statement(gc, parser);
     }
 }
 
@@ -961,7 +961,7 @@ void init_parse_rules()
     rules[TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE};
 }
 
-ObjFunction* compile(const char* source, ObjectStore* output_store, Table* output_strings)
+ObjFunction* compile(GarbageCollector* gc, const char* source, ObjectStore* output_store, Table* output_strings)
 {
     init_scanner(source);
 
@@ -970,25 +970,25 @@ ObjFunction* compile(const char* source, ObjectStore* output_store, Table* outpu
     parser.strings = output_strings;
 
     Compiler compiler = {};
-    init_compiler(&compiler, &parser, TYPE_SCRIPT);
+    init_compiler(&compiler, gc, &parser, TYPE_SCRIPT);
 
     advance(&parser);
 
     while (!match(&parser, TOKEN_EOF))
     {
-        declaration(&parser);
+        declaration(gc, &parser);
     }
   
-    ObjFunction* function = end_compiler(&parser);
+    ObjFunction* function = end_compiler(gc, &parser);
     return parser.had_error ? NULL : function;
 }
 
-void mark_compiler_roots()
+void mark_compiler_roots(GarbageCollector* gc)
 {
     Compiler* compiler = current;
     while(compiler != NULL)
     {
-        mark_object((Obj*)compiler->function);
+        mark_object(gc, (Obj*)compiler->function);
         compiler = compiler->enclosing;
     }
 }

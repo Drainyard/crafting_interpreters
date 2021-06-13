@@ -7,18 +7,23 @@
 
 struct GarbageCollector
 {
+    struct VM* vm;
+    
     i32 gray_count;
     i32 gray_capacity;
     struct Obj** gray_stack;
+
+    size_t bytes_allocated;
+    size_t next_gc;
 };
 
 // =================================================================
 // API Functions
 // =================================================================
-void* reallocate(void* pointer, size_t old_size, size_t new_size);
-void mark_value(Value value);
-void mark_object(Obj* object);
-void collect_garbage();
+void* reallocate(GarbageCollector* gc, void* pointer, size_t old_size, size_t new_size);
+void mark_value(GarbageCollector* gc, Value value);
+void mark_object(GarbageCollector* gc, Obj* object);
+void collect_garbage(GarbageCollector* gc);
 // =================================================================
 
 // =================================================================
@@ -27,17 +32,17 @@ void collect_garbage();
 #define GROW_CAPACITY(capacity)                             \
                       ((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define GROW_ARRAY(type, pointer, old_count, new_count) \
-    (type*)reallocate(pointer, sizeof(type) * (old_count), \
+#define GROW_ARRAY(gc, type, pointer, old_count, new_count)       \
+    (type*)reallocate(gc, pointer, sizeof(type) * (old_count),   \
                       sizeof(type) * (new_count))
 
-#define FREE_ARRAY(type, pointer, old_count) \
-    reallocate(pointer, sizeof(type) + (old_count), 0)
+#define FREE_ARRAY(gc, type, pointer, old_count)             \
+    reallocate(gc, pointer, sizeof(type) + (old_count), 0)
 
-#define ALLOCATE(type, count) \
-    (type*)reallocate(NULL, 0, sizeof(type) * (count))
+#define ALLOCATE(gc, type, count)                            \
+    (type*)reallocate(gc, NULL, 0, sizeof(type) * (count))
 
-#define FREE(type, pointer) reallocate(pointer, sizeof(type), 0)
+#define FREE(gc, type, pointer) reallocate(gc, pointer, sizeof(type), 0)
 // =================================================================
 
 #endif

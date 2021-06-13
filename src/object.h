@@ -97,21 +97,21 @@ char*        as_cstring(Value);
 ObjClosure*  as_closure(Value value);
 ObjFunction* as_function(Value value);
 ObjString*   as_string(Value);
-ObjString*   copy_string(ObjectStore* store, Table* strings, const char*, i32);
-ObjUpvalue*  new_upvalue(ObjectStore* store, Value* slot);
-ObjFunction* new_function(ObjectStore* store);
-ObjClosure*  new_closure(ObjFunction* function, ObjectStore* store);
-ObjNative*   new_native(NativeFn function, NativeArguments arguments, ObjectStore* store);
-ObjString*   take_string(ObjectStore*, Table* strings, char*, i32);
+ObjString*   copy_string(GarbageCollector* gc, ObjectStore* store, Table* strings, const char*, i32);
+ObjUpvalue*  new_upvalue(GarbageCollector* gc, ObjectStore* store, Value* slot);
+ObjFunction* new_function(GarbageCollector* gc, ObjectStore* store);
+ObjClosure*  new_closure(GarbageCollector* gc, ObjFunction* function, ObjectStore* store);
+ObjNative*   new_native(GarbageCollector* gc, NativeFn function, NativeArguments arguments, ObjectStore* store);
+ObjString*   take_string(GarbageCollector* gc, ObjectStore*, Table* strings, char*, i32);
 void         print_object(Value);
-void         free_object(Obj*);
+void         free_object(GarbageCollector* gc, Obj*);
 // =================================================================
 
 // =================================================================
 // Internal Functions
 // =================================================================
-#define ALLOCATE_OBJ(type, object_type)                 \
-    (type*)allocate_object(store, sizeof(type), (object_type))
+#define ALLOCATE_OBJ(gc, type, object_type)                          \
+    (type*)allocate_object(gc, store, sizeof(type), (object_type))
 // =================================================================
 
 #endif

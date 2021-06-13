@@ -34,9 +34,9 @@ NativeFn as_native(Value value)
     return ((ObjNative*)value.as.obj)->function;
 }
 
-static Obj* allocate_object(ObjectStore* store, size_t size, ObjType type)
+static Obj* allocate_object(GarbageCollector* gc, ObjectStore* store, size_t size, ObjType type)
 {
-    Obj* object = (Obj*)reallocate(NULL, 0, size);
+    Obj* object = (Obj*)reallocate(gc, NULL, 0, size);
     object->type = type;
     object->is_marked = false;
     object->next = store->objects;
@@ -49,9 +49,9 @@ static Obj* allocate_object(ObjectStore* store, size_t size, ObjType type)
     return object;
 }
 
-ObjFunction* new_function(ObjectStore* store)
+ObjFunction* new_function(GarbageCollector* gc, ObjectStore* store)
 {
-    ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+    ObjFunction* function = ALLOCATE_OBJ(gc, ObjFunction, OBJ_FUNCTION);
     function->arity = 0;
     function->upvalue_count = 0;
     function->name = NULL;
@@ -59,14 +59,14 @@ ObjFunction* new_function(ObjectStore* store)
     return function;
 }
 
-ObjClosure* new_closure(ObjFunction* function, ObjectStore* store)
+ObjClosure* new_closure(GarbageCollector* gc, ObjFunction* function, ObjectStore* store)
 {
-    ObjUpvalue** upvalues = ALLOCATE(ObjUpvalue*, function->upvalue_count);
+    ObjUpvalue** upvalues = ALLOCATE(gc, ObjUpvalue*, function->upvalue_count);
     for(i32 i = 0; i < function->upvalue_count; i++)
     {
         upvalues[i] = NULL;
     }
-    ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+    ObjClosure* closure = ALLOCATE_OBJ(gc, ObjClosure, OBJ_CLOSURE);
     closure->function      = function;
     closure->upvalues      = upvalues;
     closure->upvalue_count = function->upvalue_count;
@@ -88,9 +88,9 @@ static NativeArguments make_native_arguments(i32 arity, ...)
     return arguments;
 }
 
-ObjNative* new_native(NativeFn function, NativeArguments arguments, ObjectStore* store)
+ObjNative* new_native(GarbageCollector* gc, NativeFn function, NativeArguments arguments, ObjectStore* store)
 {
-    ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+    ObjNative* native = ALLOCATE_OBJ(gc, ObjNative, OBJ_NATIVE);
     native->function       = function;
     native->arguments      = arguments;
     return native;
@@ -109,13 +109,17 @@ static u32 hash_string(const char* key, i32 length)
     return hash;
 }
 
-static ObjString* allocate_string(ObjectStore* store, Table* strings, const char* chars, i32 length)
+static ObjString* allocate_string(GarbageCollector* gc, ObjectStore* store, Table* strings, const char* chars, i32 length)
 {
-    ObjString* string = (ObjString*)allocate_object(store, sizeof(ObjString) + length + 1, OBJ_STRING);
+    ObjString* string = (ObjString*)allocate_object(gc, store, sizeof(ObjString) + length + 1, OBJ_STRING);
     string->length = length;
     string->hash = hash_string(chars, length);
 
-    table_set(strings, string, nil_val());
+    push(gc->vm, obj_val(string));
+
+    table_set(gc, strings, string, nil_val());
+
+    pop(gc->vm);
 
     memcpy(string->chars, chars, length);
     string->chars[length] = '\0';
@@ -123,19 +127,19 @@ static ObjString* allocate_string(ObjectStore* store, Table* strings, const char
     return string;
 }
 
-ObjString* copy_string(ObjectStore* store, Table* strings, const char* chars, i32 length)
+ObjString* copy_string(GarbageCollector* gc, ObjectStore* store, Table* strings, const char* chars, i32 length)
 {
     u32 hash = hash_string(chars, length);
     ObjString* interned = table_find_string(strings, chars, length, hash);
 
     if (interned) return interned;
 
-    return allocate_string(store, strings, chars, length);
+    return allocate_string(gc, store, strings, chars, length);
 }
 
-ObjUpvalue*  new_upvalue(ObjectStore* store, Value* slot)
+ObjUpvalue*  new_upvalue(GarbageCollector* gc, ObjectStore* store, Value* slot)
 {
-    ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
+    ObjUpvalue* upvalue = ALLOCATE_OBJ(gc, ObjUpvalue, OBJ_UPVALUE);
     upvalue->location = slot;
     upvalue->next     = NULL;
     upvalue->closed   = nil_val();
@@ -152,21 +156,21 @@ static void print_function(ObjFunction* function)
     printf("<fn %s>", function->name->chars);
 }
 
-ObjString* take_string(ObjectStore* store, Table* strings, char* chars, i32 length)
+ObjString* take_string(GarbageCollector* gc, ObjectStore* store, Table* strings, char* chars, i32 length)
 {
     u32 hash = hash_string(chars, length);
     ObjString* interned = table_find_string(strings, chars, length, hash);
 
     if (interned)
     {
-        FREE_ARRAY(char, chars, length + 1);
+        FREE_ARRAY(gc, char, chars, length + 1);
         return interned;
     }
     
-    return allocate_string(store, strings, chars, length);
+    return allocate_string(gc, store, strings, chars, length);
 }
 
-void free_object(Obj* object)
+void free_object(GarbageCollector* gc, Obj* object)
 {
 #ifdef DEBUG_LOG_GC
     printf("%p free type %d\n", (void*)object, object->type);
@@ -176,30 +180,30 @@ void free_object(Obj* object)
         case OBJ_CLOSURE:
         {
             ObjClosure* closure = (ObjClosure*)object;
-            FREE_ARRAY(ObjUpvalue*, closure->upvalues, closure->upvalue_count);
-            FREE(ObjClosure, object);
+            FREE_ARRAY(gc, ObjUpvalue*, closure->upvalues, closure->upvalue_count);
+            FREE(gc, ObjClosure, object);
         }
         break;
         case OBJ_FUNCTION:
         {
             ObjFunction* function = (ObjFunction*)object;
-            free_chunk(&function->chunk);
-            FREE(ObjFunction, object);
+            free_chunk(gc, &function->chunk);
+            FREE(gc, ObjFunction, object);
         }
         break;
         case OBJ_NATIVE:
         {
-            FREE(ObjNative, object);
+            FREE(gc, ObjNative, object);
         }
         break;
         case OBJ_STRING:
         {
-            FREE(ObjString, object);
+            FREE(gc, ObjString, object);
         }
         break;
         case OBJ_UPVALUE:
         {
-            FREE(ObjUpvalue, object);
+            FREE(gc, ObjUpvalue, object);
         }
         break;
     }

@@ -42,8 +42,8 @@ struct ValueArray
 // API Functions
 // =================================================================
 void init_value_array(ValueArray* array);
-void free_value_array(ValueArray* array);
-void write_value_array(ValueArray* array, Value value);
+void free_value_array(struct GarbageCollector* gc, ValueArray* array);
+void write_value_array(struct GarbageCollector* gc, ValueArray* array, Value value);
 void print_value(Value value);
 b32 values_equal(Value a, Value b);
 Value number_val(f64 number);

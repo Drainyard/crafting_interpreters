@@ -2,8 +2,9 @@
 #define CLOX_H
 
 #include "common.h"
-#include "memory.h"
+
 #include "value.h"
+#include "memory.h"
 #include "table.h"
 #include "chunk.h"
 #include "object.h"

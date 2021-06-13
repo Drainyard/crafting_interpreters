@@ -76,19 +76,19 @@ void init_value_array(ValueArray* array)
     array->values = NULL;
 }
 
-void free_value_array(ValueArray* array)
+void free_value_array(GarbageCollector* gc, ValueArray* array)
 {
-    FREE_ARRAY(Value, array->values, array->capacity);
+    FREE_ARRAY(gc, Value, array->values, array->capacity);
     init_value_array(array);
 }
 
-void write_value_array(ValueArray* array, Value value)
+void write_value_array(GarbageCollector* gc, ValueArray* array, Value value)
 {
     if(array->capacity < array->count + 1)
     {
         i32 old_capacity = array->capacity;
         array->capacity = GROW_CAPACITY(old_capacity);
-        array->values = GROW_ARRAY(Value, array->values, old_capacity, array->capacity);
+        array->values = GROW_ARRAY(gc, Value, array->values, old_capacity, array->capacity);
     }
 
     array->values[array->count] = value;

@@ -57,9 +57,9 @@ struct Chunk
 // API Functions
 // =================================================================
 void init_chunk(Chunk* chunk);
-void free_chunk(Chunk* chunk);
-void write_chunk(Chunk* chunk, u8 byte, i32 line);
-i32 add_constant(Chunk* chunk, Value value);
+void free_chunk(GarbageCollector* gc, Chunk* chunk);
+void write_chunk(GarbageCollector* gc, Chunk* chunk, u8 byte, i32 line);
+i32 add_constant(GarbageCollector* gc, Chunk* chunk, Value value);
 void write_constant(Chunk* chunk, Value value, i32 line);
 // =================================================================
 

@@ -32,6 +32,8 @@ struct VM
     ObjUpvalue* open_upvalues;
 
     ObjectStore store;
+
+    GarbageCollector gc;
 };
 
 enum InterpretResult
@@ -61,7 +63,7 @@ static Value peek(VM* vm, i32 distance);
 static b32 is_falsey(Value value);
 static void concatenate(VM* vm);
 static void runtime_error(VM* vm, const char* format, ...);
-void free_objects(VM* vm);
+void free_objects(ObjectStore* store, GarbageCollector* gc);
 // =================================================================
 
 #endif

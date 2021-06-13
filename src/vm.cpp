@@ -19,7 +19,7 @@ static void runtime_error(VM* vm, const char* format, ...)
         ObjFunction* function = frame->closure->function;
 
         size_t instruction = frame->ip - function->chunk.code - 1;
-        fprintf(stderr, "[lin %d] in ", function->chunk.lines[instruction]);
+        fprintf(stderr, "[line %d] in ", function->chunk.lines[instruction]);
 
         if (function->name == NULL)
         {
@@ -36,9 +36,9 @@ static void runtime_error(VM* vm, const char* format, ...)
 
 static void define_native(VM* vm, const char* name, NativeFn function, NativeArguments arguments)
 {
-    push(vm, obj_val(copy_string(&vm->store, &vm->strings, name, (i32)strlen(name))));
-    push(vm, obj_val(new_native(function, arguments, &vm->store)));
-    table_set(&vm->globals, as_string(vm->stack[0]), vm->stack[1]);
+    push(vm, obj_val(copy_string(&vm->gc, &vm->store, &vm->strings, name, (i32)strlen(name))));
+    push(vm, obj_val(new_native(&vm->gc, function, arguments, &vm->store)));
+    table_set(&vm->gc, &vm->globals, as_string(vm->stack[0]), vm->stack[1]);
     pop(vm);
     pop(vm);
 }
@@ -71,9 +71,10 @@ void init_vm(VM* vm)
 {
     reset_stack(vm);
     vm->store.objects = NULL;
-    vm->gray_count    = 0;
-    vm->gray_capacity = 0;
-    vm->gray_stack    = NULL;
+    vm->gc = {};
+    vm->gc.vm = vm;
+    vm->gc.bytes_allocated = 0;
+    vm->gc.next_gc = 1024 * 1024;
     
     init_table(&vm->strings);
     init_table(&vm->globals);
@@ -86,9 +87,9 @@ void init_vm(VM* vm)
 
 void free_vm(VM* vm)
 {
-    free_table(&vm->strings);
-    free_table(&vm->globals);    
-    free_objects(vm);
+    free_table(&vm->gc, &vm->strings);
+    free_table(&vm->gc, &vm->globals);    
+    free_objects(&vm->store, &vm->gc);
 }
 
 static void push(VM* vm, Value value)
@@ -198,7 +199,7 @@ static ObjUpvalue* capture_upvalue(VM* vm, Value* local)
         return upvalue;
     }
     
-    ObjUpvalue* created_upvalue = new_upvalue(&vm->store, local);
+    ObjUpvalue* created_upvalue = new_upvalue(&vm->gc, &vm->store, local);
     created_upvalue->next = upvalue;
 
     if(prev_upvalue == NULL)
@@ -231,26 +232,28 @@ static b32 is_falsey(Value value)
 
 static void concatenate(VM* vm)
 {
-    ObjString* b = as_string(pop(vm));
-    ObjString* a = as_string(pop(vm));
+    ObjString* b = as_string(peek(vm, 0));
+    ObjString* a = as_string(peek(vm, 1));
 
     i32 length = a->length + b->length;
-    char* chars = ALLOCATE(char, length + 1);
+    char* chars = ALLOCATE(&vm->gc, char, length + 1);
     memcpy(chars, a->chars, a->length);
     memcpy(chars + a->length, b->chars, b->length);
     chars[length] = '\0';
 
-    ObjString* result = take_string(&vm->store, &vm->strings, chars, length);
+    ObjString* result = take_string(&vm->gc, &vm->store, &vm->strings, chars, length);
+    pop(vm);
+    pop(vm);
     push(vm, obj_val(result));
 }
 
 InterpretResult interpret(VM* vm, const char* source)
 {
-    ObjFunction* function = compile(source, &vm->store, &vm->strings);
+    ObjFunction* function = compile(&vm->gc, source, &vm->store, &vm->strings);
     if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
     push(vm, obj_val(function));
-    ObjClosure* closure = new_closure(function, &vm->store);
+    ObjClosure* closure = new_closure(&vm->gc, function, &vm->store);
     pop(vm);
     push(vm, obj_val(closure));
     call(vm, closure, 0);
@@ -339,7 +342,7 @@ static InterpretResult run(VM* vm)
             case OP_CLOSURE:
             {
                 ObjFunction* function = as_function(READ_CONSTANT());
-                ObjClosure* closure = new_closure(function, &vm->store);
+                ObjClosure* closure = new_closure(&vm->gc, function, &vm->store);
                 push(vm, obj_val(closure));
                 for(i32 i = 0; i < closure->upvalue_count; i++)
                 {
@@ -411,7 +414,7 @@ static InterpretResult run(VM* vm)
             case OP_DEFINE_GLOBAL:
             {
                 ObjString* name = READ_STRING();
-                table_set(&vm->globals, name, peek(vm, 0));
+                table_set(&vm->gc, &vm->globals, name, peek(vm, 0));
                 pop(vm);
             }
             break;
@@ -424,7 +427,7 @@ static InterpretResult run(VM* vm)
             case OP_SET_GLOBAL:
             {
                 ObjString* name = READ_STRING();
-                if (table_set(&vm->globals, name, peek(vm, 0)))
+                if (table_set(&vm->gc, &vm->globals, name, peek(vm, 0)))
                 {
                     table_delete(&vm->globals, name);
                     runtime_error(vm, "Undefined variable '%s'.", name->chars);
@@ -501,16 +504,16 @@ static InterpretResult run(VM* vm)
 #undef BINARY_OP
 }
 
-void free_objects(VM* vm)
+void free_objects(ObjectStore* store, GarbageCollector* gc)
 {
-    Obj* object = vm->store.objects;
+    Obj* object = store->objects;
     while (object != NULL)
     {
         Obj* next = object->next;
-        free_object(object);
+        free_object(gc, object);
         object = next;
     }
-    vm->store.objects = NULL;
+    store->objects = NULL;
 
-    free(vm->gray_stack);
+    free(gc->gray_stack);
 }
