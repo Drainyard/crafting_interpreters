@@ -359,6 +359,11 @@ static InterpretResult run(VM* vm)
                 }
             }
             break;
+            case OP_CLASS:
+            {
+                push(vm, obj_val(new_class(&vm->gc, &vm->store, READ_STRING())));
+            }
+            break;
             case OP_CLOSE_UPVALUE:
             {
                 close_upvalues(vm, vm->stack_top - 1);

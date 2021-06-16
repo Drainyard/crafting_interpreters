@@ -24,6 +24,11 @@ ObjFunction* as_function(Value value)
     return (ObjFunction*)value.as.obj;
 }
 
+ObjClass* as_class(Value value)
+{
+    return (ObjClass*)value.as.obj;
+}
+
 ObjClosure* as_closure(Value value)
 {
     return (ObjClosure*)value.as.obj;
@@ -57,6 +62,13 @@ ObjFunction* new_function(GarbageCollector* gc, ObjectStore* store)
     function->name = NULL;
     init_chunk(&function->chunk);
     return function;
+}
+
+ObjClass* new_class(GarbageCollector* gc, ObjectStore* store, ObjString* name)
+{
+    ObjClass* klass = ALLOCATE_OBJ(gc, ObjClass, OBJ_CLASS);
+    klass->name = name;
+    return klass;
 }
 
 ObjClosure* new_closure(GarbageCollector* gc, ObjFunction* function, ObjectStore* store)
@@ -177,6 +189,11 @@ void free_object(GarbageCollector* gc, Obj* object)
 #endif
     switch (object->type)
     {
+        case OBJ_CLASS:
+        {
+            FREE(gc, ObjClass, object);
+        }
+        break;
         case OBJ_CLOSURE:
         {
             ObjClosure* closure = (ObjClosure*)object;
@@ -213,6 +230,11 @@ void print_object(Value value)
 {
     switch(value.as.obj->type)
     {
+        case OBJ_CLASS:
+        {
+            printf("%s", as_class(value)->name->chars);
+        }
+        break;
         case OBJ_CLOSURE:
         {
             print_function(as_closure(value)->function);

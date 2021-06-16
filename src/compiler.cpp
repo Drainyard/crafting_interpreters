@@ -616,6 +616,19 @@ static void function(GarbageCollector* gc, Parser* parser, FunctionType type)
     }
 }
 
+static void class_declaration(GarbageCollector* gc, Parser* parser)
+{
+    consume(parser, TOKEN_IDENTIFIER, "Expect class name.");
+    u8 name_constant = identifier_constant(gc, parser, &parser->previous);
+    declare_variable(gc, parser, true);
+
+    emit_bytes(gc, parser, OP_CLASS, name_constant);
+    define_variable(gc, parser, name_constant);
+
+    consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+    consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+}
+
 static void fun_declaration(GarbageCollector* gc, Parser* parser)
 {
     u8 global = parse_variable(gc, parser, "Expect function name.", true);
@@ -858,7 +871,11 @@ static void synchronize(Parser* parser)
 
 static void declaration(GarbageCollector* gc, Parser* parser)
 {
-    if (match(parser, TOKEN_FUN))
+    if (match(parser, TOKEN_CLASS))
+    {
+        class_declaration(gc, parser);
+    }
+    else if (match(parser, TOKEN_FUN))
     {
         fun_declaration(gc, parser);
     }

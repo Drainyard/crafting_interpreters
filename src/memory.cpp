@@ -70,6 +70,12 @@ static void blacken_object(GarbageCollector* gc, Obj* object)
 #endif
     switch(object->type)
     {
+        case OBJ_CLASS:
+        {
+            ObjClass* klass = (ObjClass*)object;
+            mark_object(gc, (Obj*)klass->name);
+        }
+        break;
         case OBJ_CLOSURE:
         {
             ObjClosure* closure = (ObjClosure*)object;

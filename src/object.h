@@ -13,6 +13,7 @@
 
 enum ObjType
 {
+    OBJ_CLASS,
     OBJ_CLOSURE,
     OBJ_FUNCTION,
     OBJ_NATIVE,
@@ -62,6 +63,12 @@ struct ObjClosure
     i32 upvalue_count;
 };
 
+struct ObjClass
+{
+    Obj obj;
+    ObjString* name;
+};
+
 #define MAX_ARITY 8
 struct NativeArguments
 {
@@ -92,14 +99,16 @@ struct Table;
 // =================================================================
 // API Functions
 // =================================================================
-b32         is_string(Value);
+b32          is_string(Value);
 char*        as_cstring(Value);
+ObjClass*    as_class(Value value);
 ObjClosure*  as_closure(Value value);
 ObjFunction* as_function(Value value);
 ObjString*   as_string(Value);
 ObjString*   copy_string(GarbageCollector* gc, ObjectStore* store, Table* strings, const char*, i32);
 ObjUpvalue*  new_upvalue(GarbageCollector* gc, ObjectStore* store, Value* slot);
 ObjFunction* new_function(GarbageCollector* gc, ObjectStore* store);
+ObjClass*    new_class(GarbageCollector* gc, ObjectStore* store, ObjString* name);
 ObjClosure*  new_closure(GarbageCollector* gc, ObjFunction* function, ObjectStore* store);
 ObjNative*   new_native(GarbageCollector* gc, NativeFn function, NativeArguments arguments, ObjectStore* store);
 ObjString*   take_string(GarbageCollector* gc, ObjectStore*, Table* strings, char*, i32);
