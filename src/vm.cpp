@@ -36,9 +36,9 @@ static void runtime_error(VM* vm, const char* format, ...)
 
 static void define_native(VM* vm, const char* name, NativeFn function, NativeArguments arguments)
 {
-    push(vm, obj_val(copy_string(&vm->gc, &vm->store, &vm->strings, name, (i32)strlen(name))));
-    push(vm, obj_val(new_native(&vm->gc, function, arguments, &vm->store)));
-    table_set(&vm->gc, &vm->globals, as_string(vm->stack[0]), vm->stack[1]);
+    push(vm, OBJ_VAL(copy_string(&vm->gc, &vm->store, &vm->strings, name, (i32)strlen(name))));
+    push(vm, OBJ_VAL(new_native(&vm->gc, function, arguments, &vm->store)));
+    table_set(&vm->gc, &vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
     pop(vm);
     pop(vm);
 }
@@ -64,7 +64,7 @@ static Value pow_native(i32 arg_count, Value* args)
 static Value atof_native(i32 arg_count, Value* args)
 {
     Value value = args[0];
-    return number_val(atof(as_cstring(value)));
+    return number_val(atof(AS_CSTRING(value)));
 }
 
 void init_vm(VM* vm)
@@ -133,15 +133,26 @@ static b32 call(VM* vm, ObjClosure* closure, i32 arg_count)
 
 static b32 call_value(VM* vm, Value callee, i32 arg_count)
 {
-    if (is_obj(callee))
+    if (IS_OBJ(callee))
     {
-        switch (callee.as.obj->type)
+        switch (AS_OBJ(callee)->type)
         {
+            case OBJ_BOUND_METHOD:
+            {
+                ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+                return call(vm, bound->method, arg_count);
+            }
+            case OBJ_CLASS:
+            {
+                ObjClass* klass = AS_CLASS(callee);
+                vm->stack_top[-arg_count - 1] = OBJ_VAL(new_instance(&vm->gc, &vm->store, klass));
+                return true;
+            }
             case OBJ_CLOSURE:
-            return call(vm, as_closure(callee), arg_count);
+            return call(vm, AS_CLOSURE(callee), arg_count);
             case OBJ_NATIVE:
             {
-                ObjNative* obj = (ObjNative*)callee.as.obj;
+                ObjNative* obj = AS_NATIVE(callee);
                 if(arg_count > obj->arguments.arity)
                 {
                     // @Incomplete: Add formatting that reports native function name
@@ -169,7 +180,7 @@ static b32 call_value(VM* vm, Value callee, i32 arg_count)
                     }
                 }
             
-                NativeFn native = as_native(callee);
+                NativeFn native = AS_NATIVE(callee)->function;
                 Value result = native(arg_count, vm->stack_top - arg_count);
                 vm->stack_top -= arg_count + 1;
                 push(vm, result);
@@ -182,6 +193,21 @@ static b32 call_value(VM* vm, Value callee, i32 arg_count)
 
     runtime_error(vm, "Can only call functions and classes.");
     return false;
+}
+
+static b32 bind_method(VM* vm, ObjClass* klass, ObjString* name)
+{
+    Value method;
+    if (!table_get(&klass->methods, name, &method))
+    {
+        runtime_error(vm, "Undefined property '%s'.", name->chars);
+        return false;
+    }
+
+    ObjBoundMethod* bound = new_bound_method(&vm->gc, &vm->store, peek(vm, 0), AS_CLOSURE(method));
+    pop(vm);
+    push(vm, OBJ_VAL(bound));
+    return true;
 }
 
 static ObjUpvalue* capture_upvalue(VM* vm, Value* local)
@@ -225,15 +251,23 @@ static void close_upvalues(VM* vm, Value* last)
     }
 }
 
+static void define_method(VM* vm, ObjString* name)
+{
+    Value method = peek(vm, 0);
+    ObjClass* klass = AS_CLASS(peek(vm, 1));
+    table_set(&vm->gc, &klass->methods, name, method);
+    pop(vm);
+}
+
 static b32 is_falsey(Value value)
 {
-    return is_nil(value) || (is_bool(value) && !value.as.boolean);
+    return IS_NIL(value) || (IS_BOOL(value) && !value.as.boolean);
 }
 
 static void concatenate(VM* vm)
 {
-    ObjString* b = as_string(peek(vm, 0));
-    ObjString* a = as_string(peek(vm, 1));
+    ObjString* b = AS_STRING(peek(vm, 0));
+    ObjString* a = AS_STRING(peek(vm, 1));
 
     i32 length = a->length + b->length;
     char* chars = ALLOCATE(&vm->gc, char, length + 1);
@@ -244,7 +278,7 @@ static void concatenate(VM* vm)
     ObjString* result = take_string(&vm->gc, &vm->store, &vm->strings, chars, length);
     pop(vm);
     pop(vm);
-    push(vm, obj_val(result));
+    push(vm, OBJ_VAL(result));
 }
 
 InterpretResult interpret(VM* vm, const char* source)
@@ -252,10 +286,10 @@ InterpretResult interpret(VM* vm, const char* source)
     ObjFunction* function = compile(&vm->gc, source, &vm->store, &vm->strings);
     if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
-    push(vm, obj_val(function));
+    push(vm, OBJ_VAL(function));
     ObjClosure* closure = new_closure(&vm->gc, function, &vm->store);
     pop(vm);
-    push(vm, obj_val(closure));
+    push(vm, OBJ_VAL(closure));
     call(vm, closure, 0);
     
     return run(vm);
@@ -267,11 +301,11 @@ static InterpretResult run(VM* vm)
 #define READ_BYTE() (*frame->ip++)
 #define READ_CONSTANT() (frame->closure->function->chunk.constants.values[READ_BYTE()])
 #define READ_SHORT() (frame->ip += 2, (u16)(frame->ip[-2] << 8) | frame->ip[-1])
-#define READ_STRING() (as_string(READ_CONSTANT()))
+#define READ_STRING() (AS_STRING(READ_CONSTANT()))
 
 #define BINARY_OP(value_type, op)                               \
     do {                                                        \
-        if (!is_number(peek(vm, 0)) || !is_number(peek(vm, 1))) \
+        if (!IS_NUMBER(peek(vm, 0)) || !IS_NUMBER(peek(vm, 1))) \
         {                                                       \
             runtime_error(vm, "Operands must be numbers.");     \
             return INTERPRET_RUNTIME_ERROR;                     \
@@ -341,9 +375,9 @@ static InterpretResult run(VM* vm)
             break;
             case OP_CLOSURE:
             {
-                ObjFunction* function = as_function(READ_CONSTANT());
+                ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
                 ObjClosure* closure = new_closure(&vm->gc, function, &vm->store);
-                push(vm, obj_val(closure));
+                push(vm, OBJ_VAL(closure));
                 for(i32 i = 0; i < closure->upvalue_count; i++)
                 {
                     u8 is_local = READ_BYTE();
@@ -361,7 +395,12 @@ static InterpretResult run(VM* vm)
             break;
             case OP_CLASS:
             {
-                push(vm, obj_val(new_class(&vm->gc, &vm->store, READ_STRING())));
+                push(vm, OBJ_VAL(new_class(&vm->gc, &vm->store, READ_STRING())));
+            }
+            break;
+            case OP_METHOD:
+            {
+                define_method(vm, READ_STRING());
             }
             break;
             case OP_CLOSE_UPVALUE:
@@ -452,6 +491,45 @@ static InterpretResult run(VM* vm)
                 *frame->closure->upvalues[slot]->location = peek(vm, 0);
             }
             break;
+            case OP_GET_PROPERTY:
+            {
+                if (!IS_INSTANCE(peek(vm, 0)))
+                {
+                    runtime_error(vm, "Only instances have properties.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                ObjInstance* instance = AS_INSTANCE(peek(vm, 0));
+                ObjString* name = READ_STRING();
+
+                Value value;
+                if(table_get(&instance->fields, name, &value))
+                {
+                    pop(vm);
+                    push(vm, value);
+                    break;
+                }
+
+                if (!bind_method(vm, instance->klass, name))
+                {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+            }
+            break;
+            case OP_SET_PROPERTY:
+            {
+                if (!IS_INSTANCE(peek(vm, 1)))
+                {
+                    runtime_error(vm, "Only instances have fields");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                
+                ObjInstance* instance = AS_INSTANCE(peek(vm, 1));
+                table_set(&vm->gc, &instance->fields, READ_STRING(), peek(vm, 0));
+                Value value = pop(vm);
+                pop(vm);
+                push(vm, value);
+            }
+            break;
             case OP_EQUAL:
             {
                 Value b = pop(vm);
@@ -463,11 +541,11 @@ static InterpretResult run(VM* vm)
             case OP_LESS:     BINARY_OP(bool_val, <);   break;
             case OP_ADD:
             {
-                if (is_string(peek(vm, 0)) && is_string(peek(vm, 1)))
+                if (IS_STRING(peek(vm, 0)) && IS_STRING(peek(vm, 1)))
                 {
                     concatenate(vm);
                 }
-                else if (is_number(peek(vm, 0)) && is_number(peek(vm, 1)))
+                else if (IS_NUMBER(peek(vm, 0)) && IS_NUMBER(peek(vm, 1)))
                 {
                     f64 b = pop(vm).as.number;
                     f64 a = pop(vm).as.number;
@@ -490,7 +568,7 @@ static InterpretResult run(VM* vm)
             break;
             case OP_NEGATE:
             {
-                if (!is_number(peek(vm, 0)))
+                if (!IS_NUMBER(peek(vm, 0)))
                 {
                     runtime_error(vm, "Operand must be a number.");
                     return INTERPRET_RUNTIME_ERROR;

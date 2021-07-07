@@ -23,7 +23,7 @@ static Entry* find_entry(Entry* entries, i32 capacity, ObjString* key)
 
         if (entry->key == NULL)
         {
-            if (is_nil(entry->value))
+            if (IS_NIL(entry->value))
             {
                 return tombstone != NULL ? tombstone : entry;
             }
@@ -90,7 +90,7 @@ bool table_set(GarbageCollector* gc, Table* table, ObjString* key, Value value)
     Entry* entry = find_entry(table->entries, table->capacity, key);
 
     bool is_new_key = entry->key == NULL;
-    if (is_new_key && is_nil(entry->value)) table->count++;
+    if (is_new_key && IS_NIL(entry->value)) table->count++;
 
     entry->key = key;
     entry->value = value;
@@ -134,7 +134,7 @@ ObjString* table_find_string(Table* table, const char* chars, i32 length, u32 ha
 
         if (entry->key == NULL)
         {
-            if (is_nil(entry->value)) return NULL;
+            if (IS_NIL(entry->value)) return NULL;
         }
         else if (entry->key->length == length && entry->key->hash == hash &&
                  memcmp(entry->key->chars, chars, length) == 0)

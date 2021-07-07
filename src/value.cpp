@@ -29,50 +29,7 @@ Value obj_val(Obj* object)
     return value;
 }
 
-Value obj_val(ObjClass* object)
-{
-    return obj_val((Obj*)object);
-}
-
-Value obj_val(ObjClosure* object)
-{
-    return obj_val((Obj*)object);
-}
-
-Value obj_val(ObjFunction* object)
-{
-    return obj_val((Obj*)object);
-}
-
-Value obj_val(ObjNative* object)
-{
-    return obj_val((Obj*)object);
-}
-
-Value obj_val(ObjString* object)
-{
-    return obj_val((Obj*)object);
-}
-
-b32 is_number(Value value)
-{
-    return value.type == VAL_NUMBER;
-}
-
-b32 is_bool(Value value)
-{
-    return value.type == VAL_BOOL;
-}
-
-b32 is_nil(Value value)
-{
-    return value.type == VAL_NIL;
-}
-
-b32 is_obj(Value value)
-{
-    return value.type == VAL_OBJ;
-}
+#define OBJ_VAL(object) (obj_val((Obj*)object))
 
 void init_value_array(ValueArray* array)
 {

@@ -1,42 +1,6 @@
-// @Incomplete: Consider all these functions as macros for inlining and efficiency?
 static inline b32 is_obj_type(Value value, ObjType type)
 {
-    return is_obj(value) && value.as.obj->type == type;
-}
-
-b32 is_string(Value value)
-{
-    return is_obj_type(value, OBJ_STRING);
-}
-
-ObjString* as_string(Value value)
-{
-    return (ObjString*)value.as.obj;
-}
-
-char* as_cstring(Value value)
-{
-    return ((ObjString*)value.as.obj)->chars;
-}
-
-ObjFunction* as_function(Value value)
-{
-    return (ObjFunction*)value.as.obj;
-}
-
-ObjClass* as_class(Value value)
-{
-    return (ObjClass*)value.as.obj;
-}
-
-ObjClosure* as_closure(Value value)
-{
-    return (ObjClosure*)value.as.obj;
-}
-
-NativeFn as_native(Value value)
-{
-    return ((ObjNative*)value.as.obj)->function;
+    return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }
 
 static Obj* allocate_object(GarbageCollector* gc, ObjectStore* store, size_t size, ObjType type)
@@ -54,6 +18,14 @@ static Obj* allocate_object(GarbageCollector* gc, ObjectStore* store, size_t siz
     return object;
 }
 
+ObjBoundMethod* new_bound_method(GarbageCollector* gc, ObjectStore* store, Value receiver, ObjClosure* method)
+{
+    ObjBoundMethod* bound = ALLOCATE(gc, ObjBoundMethod, OBJ_BOUND_METHOD);
+    bound->receiver = receiver;
+    bound->method = method;
+    return bound;
+}
+
 ObjFunction* new_function(GarbageCollector* gc, ObjectStore* store)
 {
     ObjFunction* function = ALLOCATE_OBJ(gc, ObjFunction, OBJ_FUNCTION);
@@ -64,10 +36,19 @@ ObjFunction* new_function(GarbageCollector* gc, ObjectStore* store)
     return function;
 }
 
+ObjInstance* new_instance(GarbageCollector* gc, ObjectStore* store, ObjClass* klass)
+{
+    ObjInstance* instance = ALLOCATE_OBJ(gc, ObjInstance, OBJ_INSTANCE);
+    instance->klass = klass;
+    init_table(&instance->fields);
+    return instance;
+}
+
 ObjClass* new_class(GarbageCollector* gc, ObjectStore* store, ObjString* name)
 {
     ObjClass* klass = ALLOCATE_OBJ(gc, ObjClass, OBJ_CLASS);
     klass->name = name;
+    init_table(&klass->methods);
     return klass;
 }
 
@@ -127,7 +108,7 @@ static ObjString* allocate_string(GarbageCollector* gc, ObjectStore* store, Tabl
     string->length = length;
     string->hash = hash_string(chars, length);
 
-    push(gc->vm, obj_val(string));
+    push(gc->vm, OBJ_VAL(string));
 
     table_set(gc, strings, string, nil_val());
 
@@ -189,8 +170,15 @@ void free_object(GarbageCollector* gc, Obj* object)
 #endif
     switch (object->type)
     {
+        case OBJ_BOUND_METHOD:
+        {
+            FREE(gc, ObjBoundMethod, object);
+        }
+        break;
         case OBJ_CLASS:
         {
+            ObjClass* klass = (ObjClass*)object;
+            free_table(gc, &klass->methods);
             FREE(gc, ObjClass, object);
         }
         break;
@@ -206,6 +194,13 @@ void free_object(GarbageCollector* gc, Obj* object)
             ObjFunction* function = (ObjFunction*)object;
             free_chunk(gc, &function->chunk);
             FREE(gc, ObjFunction, object);
+        }
+        break;
+        case OBJ_INSTANCE:
+        {
+            ObjInstance* instance = (ObjInstance*)object;
+            free_table(gc, &instance->fields);
+            FREE(gc, ObjInstance, object);
         }
         break;
         case OBJ_NATIVE:
@@ -228,21 +223,32 @@ void free_object(GarbageCollector* gc, Obj* object)
 
 void print_object(Value value)
 {
-    switch(value.as.obj->type)
+    switch(AS_OBJ(value)->type)
     {
+        case OBJ_BOUND_METHOD:
+        {
+            print_function(AS_BOUND_METHOD(value)->method->function);
+        }
+        break;
         case OBJ_CLASS:
         {
-            printf("%s", as_class(value)->name->chars);
+            printf("%s", AS_CLASS(value)->name->chars);
         }
         break;
         case OBJ_CLOSURE:
         {
-            print_function(as_closure(value)->function);
+            print_function(AS_CLOSURE(value)->function);
         }
         break;
         case OBJ_FUNCTION:
         {
-            print_function((ObjFunction*)value.as.obj);
+            print_function(AS_FUNCTION(value));
+        }
+        break;
+        case OBJ_INSTANCE:
+        {
+            printf("%s instance",
+                   AS_INSTANCE(value)->klass->name->chars);
         }
         break;
         case OBJ_NATIVE:
@@ -252,7 +258,7 @@ void print_object(Value value)
         break;
         case OBJ_STRING:
         {
-            printf("%s", as_cstring(value));
+            printf("%s", AS_CSTRING(value));
         }
         break;
         case OBJ_UPVALUE:

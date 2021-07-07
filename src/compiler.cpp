@@ -247,6 +247,22 @@ static void call(GarbageCollector* gc, Parser* parser, b32 can_assign)
     emit_bytes(gc, parser, OP_CALL, arg_count);
 }
 
+static void dot(GarbageCollector* gc, Parser* parser, b32 can_assign)
+{
+    consume(parser, TOKEN_IDENTIFIER, "Expect property name after '.'.");
+    u8 name = identifier_constant(gc, parser, &parser->previous);
+
+    if (can_assign && match(parser, TOKEN_EQUAL))
+    {
+        expression(gc, parser);
+        emit_bytes(gc, parser, OP_SET_PROPERTY, name);
+    }
+    else
+    {
+        emit_bytes(gc, parser, OP_GET_PROPERTY, name);
+    }
+}
+
 static void literal(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
     switch(parser->previous.type)
@@ -285,7 +301,7 @@ static void or_(GarbageCollector* gc, Parser* parser, b32 can_assign)
 
 static void string(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
-    emit_constant(gc, parser, obj_val(copy_string(gc, parser->store, parser->strings, parser->previous.start + 1,
+    emit_constant(gc, parser, OBJ_VAL(copy_string(gc, parser->store, parser->strings, parser->previous.start + 1,
                                               parser->previous.length - 2)));
 }
 
@@ -375,7 +391,7 @@ static void parse_precedence(GarbageCollector* gc, Parser* parser, Precedence pr
 
 static u8 identifier_constant(GarbageCollector* gc, Parser* parser, Token* name)
 {
-    return make_constant(gc, parser, obj_val(copy_string(gc, parser->store, parser->strings, name->start,
+    return make_constant(gc, parser, OBJ_VAL(copy_string(gc, parser->store, parser->strings, name->start,
                                                      name->length)));
 }
 
@@ -607,7 +623,7 @@ static void function(GarbageCollector* gc, Parser* parser, FunctionType type)
     block(gc, parser);
 
     ObjFunction* function = end_compiler(gc, parser);
-    emit_bytes(gc, parser, OP_CLOSURE, make_constant(gc, parser, obj_val(function)));
+    emit_bytes(gc, parser, OP_CLOSURE, make_constant(gc, parser, OBJ_VAL(function)));
 
     for(i32 i = 0; i < function->upvalue_count; i++)
     {
@@ -619,14 +635,34 @@ static void function(GarbageCollector* gc, Parser* parser, FunctionType type)
 static void class_declaration(GarbageCollector* gc, Parser* parser)
 {
     consume(parser, TOKEN_IDENTIFIER, "Expect class name.");
+    Token class_name = parser->previous;
     u8 name_constant = identifier_constant(gc, parser, &parser->previous);
     declare_variable(gc, parser, true);
 
     emit_bytes(gc, parser, OP_CLASS, name_constant);
     define_variable(gc, parser, name_constant);
 
+    named_variable(gc, parser, class_name, false);
+
     consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
+    while (!(check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)))
+    {
+        method(gc, parser);
+    }
+    
     consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
+    emit_byte(gc, parser, OP_POP);
+}
+
+static void method(GarbageCollector* gc, Parser* parser)
+{
+    consume(parser, TOKEN_IDENTIFIER, "Expect method name.");
+    u8 constant = identifier_constant(gc, parser, &parser->previous);
+
+    FunctionType type = TYPE_FUNCTION;
+    function(gc, parser, type);
+    
+    emit_bytes(gc, parser, OP_METHOD, constant);
 }
 
 static void fun_declaration(GarbageCollector* gc, Parser* parser)
@@ -940,7 +976,7 @@ void init_parse_rules()
     rules[TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE}; 
     rules[TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_DOT]           = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_DOT]           = {NULL,     dot,    PREC_CALL};
     rules[TOKEN_MINUS]         = {unary,    binary, PREC_TERM};
     rules[TOKEN_PLUS]          = {NULL,     binary, PREC_TERM};
     rules[TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE};

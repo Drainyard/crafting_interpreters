@@ -123,6 +123,7 @@ static void expression(GarbageCollector* gc, Parser* parser);
 static void declaration(GarbageCollector* gc, Parser* parser);
 static void var_declaration(GarbageCollector* gc, Parser* parser, b32 immutable);
 static void statement(GarbageCollector* gc, Parser* parser);
+static void method(GarbageCollector* gc, Parser* parser);
 
 static i32 resolve_local(Parser* parser, Compiler* compiler, Token* name, b32* immutable);
 static i32 resolve_upvalue(Parser* parser, Compiler* compiler, Token* name, b32* immutable);

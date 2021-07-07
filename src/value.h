@@ -16,6 +16,11 @@ enum ValueType
     VAL_OBJ
 };
 
+#define IS_NUMBER(value) (value.type == VAL_NUMBER)
+#define IS_BOOL(value) (value.type == VAL_BOOL)
+#define IS_NIL(value) (value.type == VAL_NIL)
+#define IS_OBJ(value) (value.type == VAL_OBJ)
+
 struct Obj;
 struct ObjString;
 
@@ -50,11 +55,6 @@ Value number_val(f64 number);
 Value bool_val(b32 boolean);
 Value nil_val();
 Value obj_val(Obj* object);
-Value obj_val(ObjString* object);
-b32 is_number(Value value);
-b32 is_bool(Value value);
-b32 is_nil(Value value);
-b32 is_obj(Value value);
 // =================================================================
 
 #endif

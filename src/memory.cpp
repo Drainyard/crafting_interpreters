@@ -50,7 +50,7 @@ void mark_object(GarbageCollector* gc, Obj* object)
 
 void mark_value(GarbageCollector* gc, Value value)
 {
-    if (is_obj(value)) mark_object(gc, value.as.obj);
+    if (IS_OBJ(value)) mark_object(gc, value.as.obj);
 }
 
 static void mark_array(GarbageCollector* gc, ValueArray* array)
@@ -70,10 +70,18 @@ static void blacken_object(GarbageCollector* gc, Obj* object)
 #endif
     switch(object->type)
     {
+        case OBJ_BOUND_METHOD:
+        {
+            ObjBoundMethod* bound = (ObjBoundMethod*)object;
+            mark_value(gc, bound->receiver);
+            mark_object(gc, (Obj*)bound->method);
+        }
+        break;
         case OBJ_CLASS:
         {
             ObjClass* klass = (ObjClass*)object;
             mark_object(gc, (Obj*)klass->name);
+            mark_table(gc, &klass->methods);
         }
         break;
         case OBJ_CLOSURE:
@@ -91,6 +99,13 @@ static void blacken_object(GarbageCollector* gc, Obj* object)
             ObjFunction* function = (ObjFunction*)object;
             mark_object(gc, (Obj*)function->name);
             mark_array(gc, &function->chunk.constants);
+        }
+        break;
+        case OBJ_INSTANCE:
+        {
+            ObjInstance* instance = (ObjInstance*)object;
+            mark_object(gc, (Obj*)instance->klass);
+            mark_table(gc, &instance->fields);
         }
         break;
         case OBJ_UPVALUE:

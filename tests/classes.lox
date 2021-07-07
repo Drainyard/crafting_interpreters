@@ -1,0 +1,6 @@
+class Pair {}
+
+let pair = Pair();
+pair.first = 2;
+pair.second = 7;
+print pair.first + pair.second;
