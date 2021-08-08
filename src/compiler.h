@@ -60,6 +60,7 @@ struct Upvalue
 enum FunctionType
 {
     TYPE_FUNCTION,
+    TYPE_METHOD,
     TYPE_SCRIPT
 };
 

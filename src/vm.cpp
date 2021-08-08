@@ -140,6 +140,7 @@ static b32 call_value(VM* vm, Value callee, i32 arg_count)
             case OBJ_BOUND_METHOD:
             {
                 ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+                vm->stack_top[-arg_count - 1] = bound->receiver;
                 return call(vm, bound->method, arg_count);
             }
             case OBJ_CLASS:

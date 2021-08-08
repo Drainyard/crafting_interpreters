@@ -145,7 +145,7 @@ static void init_compiler(Compiler* compiler, GarbageCollector* gc, Parser* pars
     compiler->scope_depth = 0;
     compiler->function = new_function(gc, parser->store);
     current = compiler;
-
+    
     if (type != TYPE_SCRIPT)
     {
         current->function->name = copy_string(gc, parser->store, parser->strings, parser->previous.start, parser->previous.length);
@@ -154,8 +154,17 @@ static void init_compiler(Compiler* compiler, GarbageCollector* gc, Parser* pars
     Local* local = &current->locals[current->local_count++];
     local->depth       = 0;
     local->is_captured = false;
-    local->name.start  = "";
-    local->name.length = 0;
+
+    if (type != TYPE_FUNCTION)
+    {
+        local->name.start  = "this";
+        local->name.length = 4;
+    }
+    else
+    {
+        local->name.start  = "";
+        local->name.length = 0;
+    }           
 }
 
 static ObjFunction* end_compiler(GarbageCollector* gc, Parser* parser)
@@ -346,6 +355,11 @@ static void named_variable(GarbageCollector* gc, Parser* parser, Token name, b32
 static void variable(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
     named_variable(gc, parser, parser->previous, can_assign);
+}
+
+static void this_(GarbageCollector* gc, Parser* parser, b32 can_assign)
+{
+    variable(gc, parser, false);
 }
 
 static void unary(GarbageCollector* gc, Parser* parser, b32 can_assign)
@@ -659,7 +673,7 @@ static void method(GarbageCollector* gc, Parser* parser)
     consume(parser, TOKEN_IDENTIFIER, "Expect method name.");
     u8 constant = identifier_constant(gc, parser, &parser->previous);
 
-    FunctionType type = TYPE_FUNCTION;
+    FunctionType type = TYPE_METHOD;
     function(gc, parser, type);
     
     emit_bytes(gc, parser, OP_METHOD, constant);
@@ -1005,7 +1019,7 @@ void init_parse_rules()
     rules[TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_THIS]          = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_THIS]          = {this_,    NULL,   PREC_NONE};
     rules[TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE};
     rules[TOKEN_LET]           = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_CONST]         = {NULL,     NULL,   PREC_NONE};
