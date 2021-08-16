@@ -60,6 +60,7 @@ struct Upvalue
 enum FunctionType
 {
     TYPE_FUNCTION,
+    TYPE_INITIALIZER,
     TYPE_METHOD,
     TYPE_SCRIPT
 };
@@ -86,6 +87,12 @@ struct Compiler
     Upvalue upvalues[UINT8_COUNT];
     
     i32 scope_depth;
+};
+
+struct ClassCompiler
+{
+    struct ClassCompiler* enclosing;
+    b32 has_superclass;
 };
 
 ParseRule rules[TOKEN_EOF];

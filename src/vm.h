@@ -29,6 +29,8 @@ struct VM
     Table strings;
     Table globals;
 
+    ObjString* init_string;
+
     ObjUpvalue* open_upvalues;
 
     ObjectStore store;

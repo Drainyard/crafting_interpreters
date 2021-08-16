@@ -83,6 +83,10 @@ i32 disassemble_instruction(Chunk* chunk, i32 offset)
         {
             return constant_instruction("OP_SET_PROPERTY", chunk, offset);
         }
+        case OP_GET_SUPER:
+        {
+            return constant_instruction("OP_GET_SUPER", chunk, offset);
+        }
         case OP_EQUAL:
         {
             return simple_instruction("OP_EQUAL", offset);
@@ -143,6 +147,14 @@ i32 disassemble_instruction(Chunk* chunk, i32 offset)
         {
             return byte_instruction("OP_CALL", chunk, offset);
         }
+        case OP_INVOKE:
+        {
+            return invoke_instruction("OP_INVOKE", chunk, offset);
+        }
+        case OP_SUPER_INVOKE:
+        {
+            return invoke_instruction("OP_SUPER_INVOKE", chunk, offset);
+        }
         case OP_CLOSURE:
         {
             offset++;
@@ -173,6 +185,10 @@ i32 disassemble_instruction(Chunk* chunk, i32 offset)
         case OP_CLASS:
         {
             return constant_instruction("OP_CLASS", chunk, offset);
+        }
+        case OP_INHERIT:
+        {
+            return simple_instruction("OP_INHERIT", offset);
         }
         case OP_METHOD:
         {
@@ -214,6 +230,16 @@ static i32 constant_instruction(const char* name, Chunk* chunk, i32 offset)
     print_value(chunk->constants.values[constant]);
     printf("'\n");
     return offset + 2;
+}
+
+static i32 invoke_instruction(const char* name, Chunk* chunk, i32 offset)
+{
+    u8 constant = chunk->code[offset + 1];
+    u8 arg_count = chunk->code[offset + 2];
+    printf("%-16s (%d args) %4d '", name, arg_count, constant);
+    print_value(chunk->constants.values[constant]);
+    printf("'\n");
+    return offset + 3;
 }
 
 static i32 constant_long_instruction(const char* name, Chunk* chunk, i32 offset)

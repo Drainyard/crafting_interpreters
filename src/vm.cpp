@@ -77,6 +77,10 @@ void init_vm(VM* vm)
     vm->gc.next_gc = 1024 * 1024;
     
     init_table(&vm->strings);
+
+    vm->init_string = NULL;
+    vm->init_string = copy_string(&vm->gc, &vm->store, &vm->strings, "init", 4);
+    
     init_table(&vm->globals);
 
     define_native(vm, "clock", clock_native, make_native_arguments(0));
@@ -88,7 +92,9 @@ void init_vm(VM* vm)
 void free_vm(VM* vm)
 {
     free_table(&vm->gc, &vm->strings);
-    free_table(&vm->gc, &vm->globals);    
+    free_table(&vm->gc, &vm->globals);
+
+    vm->init_string = NULL;
     free_objects(&vm->store, &vm->gc);
 }
 
@@ -147,6 +153,16 @@ static b32 call_value(VM* vm, Value callee, i32 arg_count)
             {
                 ObjClass* klass = AS_CLASS(callee);
                 vm->stack_top[-arg_count - 1] = OBJ_VAL(new_instance(&vm->gc, &vm->store, klass));
+                Value initializer = {};
+                if (table_get(&klass->methods, vm->init_string, &initializer))
+                {
+                    return call(vm, AS_CLOSURE(initializer), arg_count);
+                }
+                else if (arg_count != 0)
+                {
+                    runtime_error(vm, "Expected 0 arguments but got %d");
+                    return false;
+                }
                 return true;
             }
             case OBJ_CLOSURE:
@@ -194,6 +210,39 @@ static b32 call_value(VM* vm, Value callee, i32 arg_count)
 
     runtime_error(vm, "Can only call functions and classes.");
     return false;
+}
+
+static b32 invoke_from_class(VM* vm, ObjClass* klass, ObjString* name, i32 arg_count)
+{
+    Value method = {};
+    if (!table_get(&klass->methods, name, &method))
+    {
+        runtime_error(vm, "Undefined property '%s'.", name->chars);
+        return false;
+    }
+    return call(vm, AS_CLOSURE(method), arg_count);
+}
+
+static b32 invoke(VM* vm, ObjString* name, i32 arg_count)
+{
+    Value receiver = peek(vm, arg_count);
+
+    if (!IS_INSTANCE(receiver))
+    {
+        runtime_error(vm, "Only instances have methods.");
+        return false;
+    }
+    
+    ObjInstance* instance = AS_INSTANCE(receiver);
+
+    Value value;
+    if (table_get(&instance->fields, name, &value))
+    {
+        vm->stack_top[-arg_count - 1] = value;
+        return call_value(vm, value, arg_count);
+    }
+    
+    return invoke_from_class(vm, instance->klass, name, arg_count);
 }
 
 static b32 bind_method(VM* vm, ObjClass* klass, ObjString* name)
@@ -374,6 +423,29 @@ static InterpretResult run(VM* vm)
                 frame = &vm->frames[vm->frame_count - 1];
             }
             break;
+            case OP_INVOKE:
+            {
+                ObjString* method = READ_STRING();
+                i32 arg_count = READ_BYTE();
+                if (!invoke(vm, method, arg_count))
+                {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &vm->frames[vm->frame_count - 1];
+            }
+            break;
+            case OP_SUPER_INVOKE:
+            {
+                ObjString* method = READ_STRING();
+                i32 arg_count = READ_BYTE();
+                ObjClass* superclass = AS_CLASS(pop(vm));
+                if (!invoke_from_class(vm, superclass, method, arg_count))
+                {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &vm->frames[vm->frame_count - 1];
+            }
+            break;
             case OP_CLOSURE:
             {
                 ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
@@ -397,6 +469,19 @@ static InterpretResult run(VM* vm)
             case OP_CLASS:
             {
                 push(vm, OBJ_VAL(new_class(&vm->gc, &vm->store, READ_STRING())));
+            }
+            break;
+            case OP_INHERIT:
+            {
+                Value superclass = peek(vm, 1);
+                if (!IS_CLASS(superclass))
+                {
+                    runtime_error(vm, "Superclass must be a class.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                ObjClass* subclass = AS_CLASS(peek(vm, 0));
+                table_add_all(&vm->gc, &AS_CLASS(superclass)->methods, &subclass->methods);
+                pop(vm);
             }
             break;
             case OP_METHOD:
@@ -529,6 +614,17 @@ static InterpretResult run(VM* vm)
                 Value value = pop(vm);
                 pop(vm);
                 push(vm, value);
+            }
+            break;
+            case OP_GET_SUPER:
+            {
+                ObjString* name = READ_STRING();
+                ObjClass* superclass = AS_CLASS(pop(vm));
+
+                if (!bind_method(vm, superclass, name))
+                {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
             }
             break;
             case OP_EQUAL:

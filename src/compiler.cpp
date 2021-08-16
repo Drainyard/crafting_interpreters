@@ -1,4 +1,5 @@
 Compiler* current = NULL;
+ClassCompiler* current_class = NULL;
 
 Chunk* current_chunk()
 {
@@ -103,7 +104,15 @@ static i32 emit_jump(GarbageCollector* gc, Parser* parser, u8 instruction)
 
 static void emit_return(GarbageCollector* gc, Parser* parser)
 {
-    emit_byte(gc, parser, OP_NIL);
+    if (current->type == TYPE_INITIALIZER)
+    {
+        emit_bytes(gc, parser, OP_GET_LOCAL, 0);
+    }
+    else
+    {
+        emit_byte(gc, parser, OP_NIL);
+    }
+    
     emit_byte(gc, parser, OP_RETURN);
 }
 
@@ -266,6 +275,12 @@ static void dot(GarbageCollector* gc, Parser* parser, b32 can_assign)
         expression(gc, parser);
         emit_bytes(gc, parser, OP_SET_PROPERTY, name);
     }
+    else if (match(parser, TOKEN_LEFT_PAREN))
+    {
+        u8 arg_count = argument_list(gc, parser);
+        emit_bytes(gc, parser, OP_INVOKE, name);
+        emit_byte(gc, parser, arg_count);
+    }
     else
     {
         emit_bytes(gc, parser, OP_GET_PROPERTY, name);
@@ -357,8 +372,54 @@ static void variable(GarbageCollector* gc, Parser* parser, b32 can_assign)
     named_variable(gc, parser, parser->previous, can_assign);
 }
 
+static Token synthetic_token(const char* text)
+{
+    Token token;
+    token.start = text;
+    token.length = (i32)strlen(text);
+    return token;
+}
+
+static void super_(GarbageCollector* gc, Parser* parser, b32 can_assign)
+{
+    if (!current_class)
+    {
+        error(parser, "Can't use 'super' outside of a class.");
+    }
+    else if (!current_class->has_superclass)
+    {
+        error(parser, "Can't use 'super' in a class with no superclass.");
+    }
+    
+    consume(parser, TOKEN_DOT, "Expect '.' after 'super'.");
+    consume(parser, TOKEN_IDENTIFIER, "Expect superclass method name.");
+    u8 name = identifier_constant(gc, parser, &parser->previous);
+
+    named_variable(gc, parser, synthetic_token("this"), false);
+
+
+    if (match(parser, TOKEN_LEFT_PAREN))
+    {
+        u8 arg_count = argument_list(gc, parser);
+        named_variable(gc, parser, synthetic_token("super"), false);
+        emit_bytes(gc, parser, OP_SUPER_INVOKE, name);
+        emit_byte(gc, parser, arg_count);
+    }
+    else
+    {
+        named_variable(gc, parser, synthetic_token("super"), false);
+        emit_bytes(gc, parser, OP_GET_SUPER, name);
+    }
+    
+}
+
 static void this_(GarbageCollector* gc, Parser* parser, b32 can_assign)
 {
+    if (current_class != NULL)
+    {
+        error(parser, "Can't use 'this' outside of a class.");
+        return;
+    }
     variable(gc, parser, false);
 }
 
@@ -656,6 +717,30 @@ static void class_declaration(GarbageCollector* gc, Parser* parser)
     emit_bytes(gc, parser, OP_CLASS, name_constant);
     define_variable(gc, parser, name_constant);
 
+    ClassCompiler class_compiler = {};
+    class_compiler.enclosing = current_class;
+    class_compiler.has_superclass = false;
+    current_class = &class_compiler;
+
+    if (match(parser, TOKEN_LESS))
+    {
+        consume(parser, TOKEN_IDENTIFIER, "Expect superclass name.");
+        variable(gc, parser, false);
+
+        if (identifiers_equal(&class_name, &parser->previous))
+        {
+            error(parser, "A class can't inherit from itself.");
+        }
+
+        begin_scope();
+        add_local(parser, synthetic_token("super"), true);
+        define_variable(gc, parser, 0);
+        
+        named_variable(gc, parser, class_name, false);
+        emit_byte(gc, parser, OP_INHERIT);
+        class_compiler.has_superclass = true;
+    }
+
     named_variable(gc, parser, class_name, false);
 
     consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
@@ -666,6 +751,13 @@ static void class_declaration(GarbageCollector* gc, Parser* parser)
     
     consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
     emit_byte(gc, parser, OP_POP);
+
+    if (class_compiler.has_superclass)
+    {
+        end_scope(gc, parser);
+    }
+
+    current_class = current_class->enclosing;
 }
 
 static void method(GarbageCollector* gc, Parser* parser)
@@ -674,6 +766,11 @@ static void method(GarbageCollector* gc, Parser* parser)
     u8 constant = identifier_constant(gc, parser, &parser->previous);
 
     FunctionType type = TYPE_METHOD;
+    if (parser->previous.length == 4 && memcmp(parser->previous.start, "init", 4) == 0)
+    {
+        type = TYPE_INITIALIZER;
+    }
+    
     function(gc, parser, type);
     
     emit_bytes(gc, parser, OP_METHOD, constant);
@@ -866,6 +963,11 @@ static void return_statement(GarbageCollector* gc, Parser* parser)
     }
     else
     {
+        if (current->type == TYPE_INITIALIZER)
+        {
+            error(parser, "Can't return a value from an initializer.");
+        }
+        
         expression(gc, parser);
         consume(parser, TOKEN_SEMICOLON, "Expect ';' after return value.");
         emit_byte(gc, parser, OP_RETURN);
@@ -1018,7 +1120,7 @@ void init_parse_rules()
     rules[TOKEN_OR]            = {NULL,     or_,    PREC_NONE};
     rules[TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE};
     rules[TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE};
-    rules[TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE};
+    rules[TOKEN_SUPER]         = {super_,   NULL,   PREC_NONE};
     rules[TOKEN_THIS]          = {this_,    NULL,   PREC_NONE};
     rules[TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE};
     rules[TOKEN_LET]           = {NULL,     NULL,   PREC_NONE};

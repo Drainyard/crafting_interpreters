@@ -138,6 +138,8 @@ static void mark_roots(VM* vm)
     }
 
     mark_table(&vm->gc, &vm->globals);
+
+    mark_object(&vm->gc, (Obj*)vm->init_string);
     mark_compiler_roots(&vm->gc);
 }
 
