@@ -50,7 +50,7 @@ void mark_object(GarbageCollector* gc, Obj* object)
 
 void mark_value(GarbageCollector* gc, Value value)
 {
-    if (IS_OBJ(value)) mark_object(gc, value.as.obj);
+    if (IS_OBJ(value)) mark_object(gc, AS_OBJ(value));
 }
 
 static void mark_array(GarbageCollector* gc, ValueArray* array)

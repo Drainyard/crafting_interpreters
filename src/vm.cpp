@@ -51,14 +51,14 @@ static Value clock_native(i32 arg_count, Value* args)
 static Value sqrt_native(i32 arg_count, Value* args)
 {
     Value value = args[0];
-    return number_val(sqrt(value.as.number));
+    return number_val(sqrt(AS_NUMBER(value)));
 }
 
 static Value pow_native(i32 arg_count, Value* args)
 {
     Value value    = args[0];
     Value exponent = args[1];
-    return number_val(pow(value.as.number, exponent.as.number));
+    return number_val(pow(AS_NUMBER(value), AS_NUMBER(exponent)));
 }
 
 static Value atof_native(i32 arg_count, Value* args)
@@ -189,7 +189,10 @@ static b32 call_value(VM* vm, Value callee, i32 arg_count)
                 {
                     Value arg = arguments[i];
                     ValueType type = obj->arguments.types[i];
-                    if(arg.type != type)
+                    if ((IS_NUMBER(arg) && type != VAL_NUMBER)
+                        || (IS_BOOL(arg) && type != VAL_BOOL)
+                        || (IS_NIL(arg) && type != VAL_NIL)
+                        || (IS_OBJ(arg) && type != VAL_OBJ))
                     {
                         // @Incomplete: Add formatting that reports native function name and argument types
                         runtime_error(vm, "Type mismatch in native function call arguments.");
@@ -311,7 +314,7 @@ static void define_method(VM* vm, ObjString* name)
 
 static b32 is_falsey(Value value)
 {
-    return IS_NIL(value) || (IS_BOOL(value) && !value.as.boolean);
+    return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
 static void concatenate(VM* vm)
@@ -360,8 +363,8 @@ static InterpretResult run(VM* vm)
             runtime_error(vm, "Operands must be numbers.");     \
             return INTERPRET_RUNTIME_ERROR;                     \
         }                                                       \
-        f64 b = pop(vm).as.number;                              \
-        f64 a = pop(vm).as.number;                              \
+        f64 b = AS_NUMBER(pop(vm));                             \
+        f64 a = AS_NUMBER(pop(vm));                             \
         push(vm, value_type(a op b));                           \
     } while(false)
 
@@ -644,8 +647,8 @@ static InterpretResult run(VM* vm)
                 }
                 else if (IS_NUMBER(peek(vm, 0)) && IS_NUMBER(peek(vm, 1)))
                 {
-                    f64 b = pop(vm).as.number;
-                    f64 a = pop(vm).as.number;
+                    f64 b = AS_NUMBER(pop(vm));
+                    f64 a = AS_NUMBER(pop(vm));
                     push(vm, number_val(a + b));
                 }
                 else
@@ -671,7 +674,7 @@ static InterpretResult run(VM* vm)
                     return INTERPRET_RUNTIME_ERROR;
                 }
             
-                push(vm, number_val(-pop(vm).as.number));
+                push(vm, number_val(-AS_NUMBER(pop(vm))));
                 break;
             }
         }

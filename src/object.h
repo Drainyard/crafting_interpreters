@@ -20,7 +20,6 @@
 #define IS_CLASS(value) (is_obj_type(value, OBJ_CLOSURE))
 #define IS_UPVALUE(value) (is_obj_type(value, OBJ_UPVALUE))
 
-#define AS_OBJ(value)       (value.as.obj)
 #define AS_OBJ_TYPE(value, type) ((type*)AS_OBJ(value))
 #define AS_NATIVE(value)       (AS_OBJ_TYPE(value, ObjNative))
 #define AS_FUNCTION(value)     (AS_OBJ_TYPE(value, ObjFunction))

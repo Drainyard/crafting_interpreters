@@ -15,7 +15,7 @@ void free_table(GarbageCollector* gc, Table* table)
 
 static Entry* find_entry(Entry* entries, i32 capacity, ObjString* key)
 {
-    u32 index = key->hash % capacity;
+    u32 index = key->hash & (capacity - 1);
     Entry* tombstone = NULL;
     for (;;)
     {
@@ -37,7 +37,7 @@ static Entry* find_entry(Entry* entries, i32 capacity, ObjString* key)
             return entry;
         }
 
-        index = (index + 1) % capacity;
+        index = (index + 1) & (capacity - 1);
     }
 }
 
@@ -126,7 +126,7 @@ ObjString* table_find_string(Table* table, const char* chars, i32 length, u32 ha
 {
     if (table->count == 0) return NULL;
 
-    u32 index = hash % table->capacity;
+    u32 index = hash & (table->capacity - 1);
 
     for (;;)
     {
@@ -142,7 +142,7 @@ ObjString* table_find_string(Table* table, const char* chars, i32 length, u32 ha
             return entry->key;
         }
 
-        index = (index + 1) % table->capacity;
+        index = (index + 1) & (table->capacity - 1);
     }
 }
 

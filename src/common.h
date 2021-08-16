@@ -26,6 +26,15 @@ using f64 = double;
 
 using b32 = i32; //@Note: Much more practical for struct packing
 
+#define NAN_BOXING
+
+#define QNAN ((u64)0x7ffc000000000000)
+#define SIGN_BIT ((uint64_t)0x8000000000000000)
+
+#define TAG_NIL   1
+#define TAG_FALSE 2
+#define TAG_TRUE  3
+
 /* #define DEBUG_PRINT_CODE */
 /* #define DEBUG_TRACE_EXECUTION */
 
